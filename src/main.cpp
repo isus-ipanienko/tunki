@@ -3,6 +3,9 @@
 #include <stdint.h>
 #include <vector>
 
+#define READ_U16(_pos)                                                         \
+  ((((uint16_t)read_u8(_pos + 1)) << 8) | ((uint16_t)read_u8(_pos)))
+
 typedef struct registers_t {
   uint16_t pc;
   uint8_t sp;
@@ -19,109 +22,97 @@ typedef struct registers_t {
 } registers_t;
 
 typedef struct cpu_t {
+private:
   registers_t reg;
   uint8_t mem[0xFFFF];
 
-  uint8_t read_u8(uint16_t pos) { return mem[pos]; }
-  uint16_t read_u16(uint16_t pos) {
-    return (((uint16_t)read_u8(pos + 1)) << 8) | ((uint16_t)read_u8(pos));
+  constexpr uint8_t read_u8(uint16_t pos) const {
+    // TODO: add logging
+    return mem[pos];
+  }
+  constexpr void write_u8(uint16_t pos, uint8_t data) {
+    // TODO: add logging
+    mem[pos] = data;
   }
 
-  void write_u8(uint16_t pos, uint8_t data) { mem[pos] = data; }
-  void write_u16(uint16_t pos, uint16_t data) {
+  constexpr uint16_t read_u16(uint16_t pos) const { return READ_U16(pos); }
+  constexpr void write_u16(uint16_t pos, uint16_t data) {
     write_u8(pos, (data >> 8));
     write_u8(pos + 1, (data & 0xFF));
   }
 
-  void lda(uint8_t param) {
+  constexpr uint8_t read_immediate() { return read_u8(reg.pc++); }
+  constexpr uint8_t read_zero_page() { return read_u8(read_u8(reg.pc++)); }
+  constexpr uint8_t read_zero_page_x() {
+    return read_u8(read_u8(reg.pc++) + reg.x);
+  }
+  constexpr uint8_t read_zero_page_y() {
+    return read_u8(read_u8(reg.pc++) + reg.y);
+  }
+  constexpr uint8_t read_absolute() {
+    const uint16_t pc = reg.pc;
+    reg.pc += 2;
+    return read_u8(read_u16(pc));
+  }
+  constexpr uint8_t read_absolute_x() {
+    const uint16_t pc = reg.pc;
+    reg.pc += 2;
+    return read_u8(read_u16(pc) + reg.x);
+  }
+  constexpr uint8_t read_absolute_y() {
+    const uint16_t pc = reg.pc;
+    reg.pc += 2;
+    return read_u8(read_u16(pc) + reg.y);
+  }
+  constexpr uint8_t read_indirect_x() {
+    const uint8_t ptr = read_u8(reg.pc) + reg.x;
+    return read_u8(READ_U16(ptr));
+  }
+  constexpr uint8_t read_indirect_y() {
+    const uint8_t ptr = read_u8(reg.pc);
+    return read_u8(READ_U16(ptr) + reg.y);
+  }
+
+  constexpr void lda(uint8_t param) {
     reg.a = param;
     reg.z = reg.a == 0;
     reg.n = reg.a & (1 << 7);
   }
-
-  void sta(uint16_t addr) { write_u8(addr, reg.a); }
-
-  void tax() {
+  constexpr void tax() {
     reg.x = reg.a;
     reg.z = reg.x == 0;
     reg.n = reg.x & (1 << 7);
   }
-
-  void inx() {
+  constexpr void inx() {
     reg.x++;
     reg.z = reg.x == 0;
     reg.n = reg.x & (1 << 7);
   }
+  constexpr void sta(uint16_t addr) { write_u8(addr, reg.a); }
 
-  uint16_t indirect_x() {
-    const uint8_t ptr = read_u8(reg.pc) + reg.x;
-    return (((uint16_t)read_u8(ptr + 1)) << 8) | ((uint16_t)read_u8(ptr));
-  }
-
-  uint16_t indirect_y() {
-    const uint8_t ptr = read_u8(reg.pc);
-    return ((((uint16_t)read_u8(ptr + 1)) << 8) | ((uint16_t)read_u8(ptr))) +
-           reg.y;
-  }
-
-#define READ_IMMEDIATE() mem[reg.pc]
-#define READ_ZERO_PAGE() mem[read_u8(reg.pc)]
-#define READ_ZERO_PAGE_X() mem[read_u8(reg.pc) + reg.x]
-#define READ_ZERO_PAGE_Y() mem[read_u8(reg.pc) + reg.y]
-#define READ_ABSOLUTE() mem[read_u16(reg.pc)]
-#define READ_ABSOLUTE_X() mem[read_u16(reg.pc) + reg.x]
-#define READ_ABSOLUTE_Y() mem[read_u16(reg.pc) + reg.y]
-#define READ_INDIRECT_X() mem[indirect_x()]
-#define READ_INDIRECT_Y() mem[indirect_y()]
-  void exec() {
+public:
+  constexpr void exec() {
+    uint8_t opcode;
     reg.pc = 0;
     while (true) {
-      uint8_t opcode = mem[reg.pc++];
+      opcode = read_u8(reg.pc++);
       switch (opcode) {
-      case 0x00:
-        return;
-      case 0x85:
-        sta(READ_ZERO_PAGE());
-        reg.pc++;
-        break;
-      case 0x95: {
-        sta(READ_ZERO_PAGE_X());
-        reg.pc++;
-      }
-      case 0xA5:
-        lda(READ_ZERO_PAGE());
-        reg.pc++;
-        break;
-      case 0xA9:
-        lda(READ_IMMEDIATE());
-        reg.pc++;
-        break;
-      case 0xAA:
-        tax();
-        break;
-      case 0xAD:
-        lda(READ_ABSOLUTE());
-        reg.pc += 2;
-        break;
-      case 0xE8:
-        inx();
-        break;
-      default:
-        break;
+        /* clang-format off */
+      case 0x00:                            return;
+      case 0x85: sta(read_zero_page());     break;
+      case 0x95: sta(read_zero_page_x());   break;
+      case 0xA5: lda(read_zero_page_y());   break;
+      case 0xA9: lda(read_immediate());     break;
+      case 0xAA: tax();                     break;
+      case 0xAD: lda(read_absolute());      break;
+      case 0xE8: inx();                     break;
+      default:                              return;
+        /* clang-format on */
       }
     }
   }
-#undef READ_IMMEDIATE
-#undef READ_ZERO_PAGE
-#undef READ_ZERO_PAGE_X
-#undef READ_ZERO_PAGE_Y
-#undef READ_ABSOLUTE
-#undef READ_ABSOLUTE_X
-#undef READ_ABSOLUTE_Y
-#undef READ_INDIRECT_X
-#undef READ_INDIRECT_Y
 
-  void reset() {
+  constexpr void reset() {
     reg.sp = 0;
     reg.a = 0;
     reg.x = 0;
@@ -136,7 +127,7 @@ typedef struct cpu_t {
     reg.pc = read_u16(0xFFFC);
   }
 
-  bool load(std::vector<uint8_t> cartridge) {
+  constexpr bool load(std::vector<uint8_t> cartridge) {
     if (cartridge.size() > 0x8000) {
       return false;
     }
