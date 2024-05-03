@@ -1,10 +1,26 @@
+#include <array>
 #include <memory.h>
 #include <stdbool.h>
 #include <stdint.h>
-#include <vector>
+#include <stdio.h>
 
 #define READ_U16(_pos)                                                         \
   ((((uint16_t)read_u8(_pos + 1)) << 8) | ((uint16_t)read_u8(_pos)))
+
+typedef std::array<uint8_t, 0x8000> cartridge_t;
+
+typedef enum op_t : uint8_t {
+  /* clang-format off */
+  RET       = 0x00,
+  STA_ZP    = 0x85,
+  STA_ZPX   = 0x95,
+  LDA_ZPY   = 0xA5,
+  LDA_I     = 0xA9,
+  TAX       = 0xAA,
+  LDA_A     = 0xAD,
+  INX       = 0xE8,
+  /* clang-format on */
+} op_t;
 
 typedef struct registers_t {
   uint16_t pc;
@@ -37,8 +53,8 @@ private:
 
   constexpr uint16_t read_u16(uint16_t pos) const { return READ_U16(pos); }
   constexpr void write_u16(uint16_t pos, uint16_t data) {
-    write_u8(pos, (data >> 8));
-    write_u8(pos + 1, (data & 0xFF));
+    write_u8(pos, (data & 0xFF));
+    write_u8(pos + 1, (data >> 8));
   }
 
   constexpr uint8_t read_immediate() { return read_u8(reg.pc++); }
@@ -92,21 +108,20 @@ private:
 
 public:
   constexpr void exec() {
-    uint8_t opcode;
-    reg.pc = 0;
+    op_t opcode;
     while (true) {
-      opcode = read_u8(reg.pc++);
+      opcode = (op_t)read_u8(reg.pc++);
       switch (opcode) {
         /* clang-format off */
-      case 0x00:                            return;
-      case 0x85: sta(read_zero_page());     break;
-      case 0x95: sta(read_zero_page_x());   break;
-      case 0xA5: lda(read_zero_page_y());   break;
-      case 0xA9: lda(read_immediate());     break;
-      case 0xAA: tax();                     break;
-      case 0xAD: lda(read_absolute());      break;
-      case 0xE8: inx();                     break;
-      default:                              return;
+      case STA_ZP:     sta(read_zero_page());      break;
+      case STA_ZPX:    sta(read_zero_page_x());    break;
+      case LDA_I:      lda(read_immediate());      break;
+      case LDA_ZPY:    lda(read_zero_page_y());    break;
+      case LDA_A:      lda(read_absolute());       break;
+      case TAX:        tax();                      break;
+      case INX:        inx();                      break;
+      case RET:                                    return;
+      default:                                     return;
         /* clang-format on */
       }
     }
@@ -127,17 +142,29 @@ public:
     reg.pc = read_u16(0xFFFC);
   }
 
-  constexpr bool load(std::vector<uint8_t> cartridge) {
-    if (cartridge.size() > 0x8000) {
-      return false;
-    }
+  void load(cartridge_t cartridge) {
     memcpy(&mem[0x8000], &cartridge[0], cartridge.size());
     write_u16(0xFFFC, 0x8000);
-    return true;
+    reset();
   }
+
+  friend class cpu_test;
 } cpu_t;
 
-int main(int argc, char **argv) {
+class cpu_test {
   cpu_t cpu;
+
+public:
+  bool test() {
+    cartridge_t program = {LDA_I, 0x69, TAX, INX};
+    cpu.load(program);
+    cpu.exec();
+    return cpu.reg.x == 0x6A;
+  }
+};
+
+int main(int argc, char **argv) {
+  cpu_test test;
+  printf("Test passed: %b\n", test.test());
   return 0;
 }
