@@ -101,14 +101,18 @@ const Cpu = struct {
         self.reg.pc += 2;
         return self.read_u16(pc) +% self.reg.y;
     }
-    fn addr_indirect_x(self: Cpu) u16 {
-        const ptr: u8 = self.read_u8(self.reg.pc) +% self.reg.x;
+    fn addr_indirect_x(self: *Cpu) u16 {
+        const pc: u16 = self.reg.pc;
+        self.reg.pc += 1;
+        const ptr: u8 = self.read_u8(pc) +% self.reg.x;
         const hi: u16 = @as(u16, self.read_u8(ptr +% 1)) << 8;
         const lo: u16 = self.read_u8(ptr);
         return hi | lo;
     }
-    fn addr_indirect_y(self: Cpu) u16 {
-        const ptr: u8 = self.read_u8(self.reg.pc);
+    fn addr_indirect_y(self: *Cpu) u16 {
+        const pc: u16 = self.reg.pc;
+        self.reg.pc += 1;
+        const ptr: u8 = self.read_u8(pc);
         const hi: u16 = @as(u16, self.read_u8(ptr +% 1)) << 8;
         const lo: u16 = self.read_u8(ptr);
         return (hi | lo) +% @as(u16, self.reg.y);
