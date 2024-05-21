@@ -116,43 +116,58 @@ const Cpu = struct {
     flags: Flags,
     bus: *Bus,
 
+    pub fn init(bus: *Bus) Cpu {
+        return Cpu{
+            .reg = Registers.init(),
+            .flags = Flags.init(),
+            .bus = bus,
+        };
+    }
+
     fn addr_immediate(self: *Cpu) u16 {
         const pc: u16 = self.reg.pc;
         self.reg.pc += 1;
         return pc;
     }
+
     fn addr_zero_page(self: *Cpu) u16 {
         const pc: u16 = self.reg.pc;
         self.reg.pc += 1;
         return self.bus.read_u8(pc);
     }
+
     fn addr_zero_page_x(self: *Cpu) u16 {
         const pc: u16 = self.reg.pc;
         self.reg.pc += 1;
         const ret: u8 = self.bus.read_u8(pc) +% self.reg.x;
         return ret;
     }
+
     fn addr_zero_page_y(self: *Cpu) u16 {
         const pc: u16 = self.reg.pc;
         self.reg.pc += 1;
         const ret: u8 = self.bus.read_u8(pc) +% self.reg.y;
         return ret;
     }
+
     fn addr_absolute(self: *Cpu) u16 {
         const pc: u16 = self.reg.pc;
         self.reg.pc += 2;
         return self.bus.read_u16(pc);
     }
+
     fn addr_absolute_x(self: *Cpu) u16 {
         const pc: u16 = self.reg.pc;
         self.reg.pc += 2;
         return self.bus.read_u16(pc) +% self.reg.x;
     }
+
     fn addr_absolute_y(self: *Cpu) u16 {
         const pc: u16 = self.reg.pc;
         self.reg.pc += 2;
         return self.bus.read_u16(pc) +% self.reg.y;
     }
+
     fn addr_indirect_x(self: *Cpu) u16 {
         const pc: u16 = self.reg.pc;
         self.reg.pc += 1;
@@ -161,6 +176,7 @@ const Cpu = struct {
         const lo: u16 = self.bus.read_u8(ptr);
         return hi | lo;
     }
+
     fn addr_indirect_y(self: *Cpu) u16 {
         const pc: u16 = self.reg.pc;
         self.reg.pc += 1;
@@ -173,36 +189,33 @@ const Cpu = struct {
     fn sta(self: *Cpu, addr: u16) void {
         self.bus.write_u8(addr, self.reg.a);
     }
+
     fn lda(self: *Cpu, addr: u16) void {
         self.reg.a = self.bus.read_u8(addr);
         self.flags.zero = self.reg.a == 0;
         self.flags.negative = self.reg.a & (1 << 7) != 0;
     }
+
     fn stx(self: *Cpu, addr: u16) void {
         self.bus.write_u8(addr, self.reg.x);
     }
+
     fn ldx(self: *Cpu, addr: u16) void {
         self.reg.x = self.bus.read_u8(addr);
         self.flags.zero = self.reg.x == 0;
         self.flags.negative = self.reg.x & (1 << 7) != 0;
     }
+
     fn tax(self: *Cpu) void {
         self.reg.x = self.reg.a;
         self.flags.zero = self.reg.x == 0;
         self.flags.negative = self.reg.x & (1 << 7) != 0;
     }
+
     fn inx(self: *Cpu) void {
         self.reg.x += 1;
         self.flags.zero = self.reg.x == 0;
         self.flags.negative = self.reg.x & (1 << 7) != 0;
-    }
-
-    pub fn init(bus: *Bus) Cpu {
-        return Cpu{
-            .reg = Registers.init(),
-            .flags = Flags.init(),
-            .bus = bus,
-        };
     }
 
     pub fn exec(self: *Cpu) void {
