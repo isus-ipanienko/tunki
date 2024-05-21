@@ -1,6 +1,51 @@
 const std = @import("std");
 
-const Cartridge = [0x7FFF]u8;
+const Cartridge = [0x800]u8;
+
+const Bus = struct {
+    cpu_ram: [0x800]u8,
+
+    pub fn init() Bus {
+        return Bus{
+            .cpu_ram = [_]u8{0} ** 0x800,
+        };
+    }
+
+    fn read_u8(self: Bus, pos: u16) u8 {
+        // TODO: add logging
+        return switch (pos) {
+            0x0000...0x1FFF => {
+                return self.cpu_ram[pos & 0x07FF];
+            },
+            0x2000...0x3FFF => {
+                return 0;
+            },
+            else => 0,
+        };
+    }
+
+    fn write_u8(self: *Bus, pos: u16, data: u8) void {
+        // TODO: add logging
+        switch (pos) {
+            0x0000...0x1FFF => {
+                self.cpu_ram[pos & 0x07FF] = data;
+            },
+            0x2000...0x3FFF => {},
+            else => {},
+        }
+    }
+
+    fn read_u16(self: Bus, pos: u16) u16 {
+        const hi: u16 = @as(u16, self.read_u8(pos + 1)) << 8;
+        const lo: u16 = self.read_u8(pos);
+        return hi | lo;
+    }
+
+    fn write_u16(self: *Bus, pos: u16, data: u16) void {
+        self.write_u8(pos, (data & 0xFF));
+        self.write_u8(pos + 1, (data >> 8));
+    }
+};
 
 const Op = enum(u8) {
     RET = 0x00,
@@ -32,41 +77,44 @@ const Registers = struct {
     a: u8,
     x: u8,
     y: u8,
+
+    pub fn init() Registers {
+        return Registers{
+            .pc = 0,
+            .sp = 0,
+            .a = 0,
+            .x = 0,
+            .y = 0,
+        };
+    }
 };
 
 const Flags = packed struct {
     carry: bool,
     zero: bool,
-    interrupt: bool,
+    interrupt_disable: bool,
     decimal_mode: bool,
     break_command: bool,
     overflow: bool,
     negative: bool,
+
+    pub fn init() Flags {
+        return Flags{
+            .carry = false,
+            .zero = true,
+            .interrupt_disable = true,
+            .decimal_mode = false,
+            .break_command = false,
+            .overflow = false,
+            .negative = false,
+        };
+    }
 };
 
 const Cpu = struct {
     reg: Registers,
     flags: Flags,
-    mem: [0xFFFF]u8,
-
-    fn read_u8(self: Cpu, pos: u16) u8 {
-        // TODO: add logging
-        return self.mem[pos];
-    }
-    fn write_u8(self: *Cpu, pos: u16, data: u8) void {
-        // TODO: add logging
-        self.mem[pos] = data;
-    }
-
-    fn read_u16(self: Cpu, pos: u16) u16 {
-        const hi: u16 = @as(u16, self.read_u8(pos + 1)) << 8;
-        const lo: u16 = self.read_u8(pos);
-        return hi | lo;
-    }
-    fn write_u16(self: *Cpu, pos: u16, data: u16) void {
-        self.write_u8(pos, (data & 0xFF));
-        self.write_u8(pos + 1, (data >> 8));
-    }
+    bus: *Bus,
 
     fn addr_immediate(self: *Cpu) u16 {
         const pc: u16 = self.reg.pc;
@@ -76,65 +124,65 @@ const Cpu = struct {
     fn addr_zero_page(self: *Cpu) u16 {
         const pc: u16 = self.reg.pc;
         self.reg.pc += 1;
-        return self.read_u8(pc);
+        return self.bus.read_u8(pc);
     }
     fn addr_zero_page_x(self: *Cpu) u16 {
         const pc: u16 = self.reg.pc;
         self.reg.pc += 1;
-        const ret: u8 = self.read_u8(pc) +% self.reg.x;
+        const ret: u8 = self.bus.read_u8(pc) +% self.reg.x;
         return ret;
     }
     fn addr_zero_page_y(self: *Cpu) u16 {
         const pc: u16 = self.reg.pc;
         self.reg.pc += 1;
-        const ret: u8 = self.read_u8(pc) +% self.reg.y;
+        const ret: u8 = self.bus.read_u8(pc) +% self.reg.y;
         return ret;
     }
     fn addr_absolute(self: *Cpu) u16 {
         const pc: u16 = self.reg.pc;
         self.reg.pc += 2;
-        return self.read_u16(pc);
+        return self.bus.read_u16(pc);
     }
     fn addr_absolute_x(self: *Cpu) u16 {
         const pc: u16 = self.reg.pc;
         self.reg.pc += 2;
-        return self.read_u16(pc) +% self.reg.x;
+        return self.bus.read_u16(pc) +% self.reg.x;
     }
     fn addr_absolute_y(self: *Cpu) u16 {
         const pc: u16 = self.reg.pc;
         self.reg.pc += 2;
-        return self.read_u16(pc) +% self.reg.y;
+        return self.bus.read_u16(pc) +% self.reg.y;
     }
     fn addr_indirect_x(self: *Cpu) u16 {
         const pc: u16 = self.reg.pc;
         self.reg.pc += 1;
-        const ptr: u8 = self.read_u8(pc) +% self.reg.x;
-        const hi: u16 = @as(u16, self.read_u8(ptr +% 1)) << 8;
-        const lo: u16 = self.read_u8(ptr);
+        const ptr: u8 = self.bus.read_u8(pc) +% self.reg.x;
+        const hi: u16 = @as(u16, self.bus.read_u8(ptr +% 1)) << 8;
+        const lo: u16 = self.bus.read_u8(ptr);
         return hi | lo;
     }
     fn addr_indirect_y(self: *Cpu) u16 {
         const pc: u16 = self.reg.pc;
         self.reg.pc += 1;
-        const ptr: u8 = self.read_u8(pc);
-        const hi: u16 = @as(u16, self.read_u8(ptr +% 1)) << 8;
-        const lo: u16 = self.read_u8(ptr);
+        const ptr: u8 = self.bus.read_u8(pc);
+        const hi: u16 = @as(u16, self.bus.read_u8(ptr +% 1)) << 8;
+        const lo: u16 = self.bus.read_u8(ptr);
         return (hi | lo) +% @as(u16, self.reg.y);
     }
 
     fn sta(self: *Cpu, addr: u16) void {
-        self.write_u8(addr, self.reg.a);
+        self.bus.write_u8(addr, self.reg.a);
     }
     fn lda(self: *Cpu, addr: u16) void {
-        self.reg.a = self.read_u8(addr);
+        self.reg.a = self.bus.read_u8(addr);
         self.flags.zero = self.reg.a == 0;
         self.flags.negative = self.reg.a & (1 << 7) != 0;
     }
     fn stx(self: *Cpu, addr: u16) void {
-        self.write_u8(addr, self.reg.x);
+        self.bus.write_u8(addr, self.reg.x);
     }
     fn ldx(self: *Cpu, addr: u16) void {
-        self.reg.x = read_u8(addr);
+        self.reg.x = self.bus.read_u8(addr);
         self.flags.zero = self.reg.x == 0;
         self.flags.negative = self.reg.x & (1 << 7) != 0;
     }
@@ -149,10 +197,18 @@ const Cpu = struct {
         self.flags.negative = self.reg.x & (1 << 7) != 0;
     }
 
+    pub fn init(bus: *Bus) Cpu {
+        return Cpu{
+            .reg = Registers.init(),
+            .flags = Flags.init(),
+            .bus = bus,
+        };
+    }
+
     pub fn exec(self: *Cpu) void {
         var opcode: Op = undefined;
         while (true) {
-            opcode = @enumFromInt(self.read_u8(self.reg.pc));
+            opcode = @enumFromInt(self.bus.read_u8(self.reg.pc));
             self.reg.pc += 1;
             switch (opcode) {
                 Op.STA_ZP => {
@@ -228,23 +284,23 @@ const Cpu = struct {
         self.reg.x = 0;
         self.reg.y = 0;
         self.flags.carry = false;
-        self.flags.zero = false;
-        self.flags.interrupt = false;
+        self.flags.zero = true;
+        self.flags.interrupt_disable = true;
         self.flags.decimal_mode = false;
         self.flags.break_command = false;
         self.flags.overflow = false;
         self.flags.negative = false;
-        self.reg.pc = self.read_u16(0xFFFC);
+        self.reg.pc = self.bus.read_u16(0x00FC);
     }
 
     pub fn insert(self: *Cpu, cartridge: Cartridge) void {
-        std.mem.copyForwards(u8, self.mem[0x8000..0xFFFF], &cartridge);
+        std.mem.copyForwards(u8, self.bus.cpu_ram[0x0000..0x0800], &cartridge);
         self.reset();
     }
 
     pub fn display(self: Cpu) void {
         std.debug.print("\n", .{});
-        for (0.., self.mem) |i, m| {
+        for (0.., self.bus.cpu_ram) |i, m| {
             if (m > 0) {
                 std.debug.print("0x{X}: 0x{X}\n", .{ i, m });
             }
@@ -262,14 +318,15 @@ test "cpu" {
     cartridge[0x0004] = @intFromEnum(Op.STA_ZPX);
     cartridge[0x0005] = 0xF0;
     cartridge[0x0006] = @intFromEnum(Op.RET);
-    cartridge[0x7FFC] = 0x00;
-    cartridge[0x7FFD] = 0x80;
-    var cpu: Cpu = undefined;
-    @memset(&cpu.mem, 0x00);
+    cartridge[0x00FC] = 0x00;
+    cartridge[0x00FD] = 0x00;
+    var bus: Bus = Bus.init();
+    var cpu: Cpu = Cpu.init(&bus);
+    @memset(&cpu.bus.cpu_ram, 0x00);
     cpu.insert(cartridge);
     cpu.exec();
     cpu.display();
-    try std.testing.expectEqual(0x69, cpu.mem[0x5A]);
+    try std.testing.expectEqual(0x69, cpu.bus.cpu_ram[0x5A]);
 }
 
 pub fn main() void {
