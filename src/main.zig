@@ -32,17 +32,21 @@ const Registers = struct {
     a: u8,
     x: u8,
     y: u8,
-    n: bool,
-    v: bool,
-    b: bool,
-    d: bool,
-    i: bool,
-    z: bool,
-    c: bool,
+};
+
+const Flags = packed struct {
+    carry: bool,
+    zero: bool,
+    interrupt: bool,
+    decimal_mode: bool,
+    break_command: bool,
+    overflow: bool,
+    negative: bool,
 };
 
 const Cpu = struct {
     reg: Registers,
+    flags: Flags,
     mem: [0xFFFF]u8,
 
     fn read_u8(self: Cpu, pos: u16) u8 {
@@ -123,26 +127,26 @@ const Cpu = struct {
     }
     fn lda(self: *Cpu, addr: u16) void {
         self.reg.a = self.read_u8(addr);
-        self.reg.z = self.reg.a == 0;
-        self.reg.n = self.reg.a & (1 << 7) != 0;
+        self.flags.zero = self.reg.a == 0;
+        self.flags.negative = self.reg.a & (1 << 7) != 0;
     }
     fn stx(self: *Cpu, addr: u16) void {
         self.write_u8(addr, self.reg.x);
     }
     fn ldx(self: *Cpu, addr: u16) void {
         self.reg.x = read_u8(addr);
-        self.reg.z = self.reg.x == 0;
-        self.reg.n = self.reg.x & (1 << 7) != 0;
+        self.flags.zero = self.reg.x == 0;
+        self.flags.negative = self.reg.x & (1 << 7) != 0;
     }
     fn tax(self: *Cpu) void {
         self.reg.x = self.reg.a;
-        self.reg.z = self.reg.x == 0;
-        self.reg.n = self.reg.x & (1 << 7) != 0;
+        self.flags.zero = self.reg.x == 0;
+        self.flags.negative = self.reg.x & (1 << 7) != 0;
     }
     fn inx(self: *Cpu) void {
         self.reg.x += 1;
-        self.reg.z = self.reg.x == 0;
-        self.reg.n = self.reg.x & (1 << 7) != 0;
+        self.flags.zero = self.reg.x == 0;
+        self.flags.negative = self.reg.x & (1 << 7) != 0;
     }
 
     pub fn exec(self: *Cpu) void {
@@ -214,9 +218,6 @@ const Cpu = struct {
                 Op.RET => {
                     return;
                 },
-                // else => {
-                //     return;
-                // },
             }
         }
     }
@@ -226,13 +227,13 @@ const Cpu = struct {
         self.reg.a = 0;
         self.reg.x = 0;
         self.reg.y = 0;
-        self.reg.n = false;
-        self.reg.v = false;
-        self.reg.b = false;
-        self.reg.d = false;
-        self.reg.i = false;
-        self.reg.z = false;
-        self.reg.c = false;
+        self.flags.carry = false;
+        self.flags.zero = false;
+        self.flags.interrupt = false;
+        self.flags.decimal_mode = false;
+        self.flags.break_command = false;
+        self.flags.overflow = false;
+        self.flags.negative = false;
         self.reg.pc = self.read_u16(0xFFFC);
     }
 
