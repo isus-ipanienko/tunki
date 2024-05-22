@@ -1,49 +1,54 @@
 const std = @import("std");
 
-const Cartridge = [0x800]u8;
-
 const Bus = struct {
-    cpu_ram: [0x800]u8,
+    cpu_mem: [0x10000]u8,
+    prg_rom_mirror: usize,
 
     pub fn init() Bus {
         return Bus{
-            .cpu_ram = [_]u8{0} ** 0x800,
+            .cpu_mem = [_]u8{0} ** 0x10000,
+            .prg_rom_mirror = 0x8000 + 0x4000,
         };
     }
 
-    fn read_u8(self: Bus, pos: u16) u8 {
+    const CPU_RAM_LO: u16 = 0x0000;
+    const CPU_RAM_HI: u16 = 0x1FFF;
+    const PRG_ROM_LO: u16 = 0x8000;
+    const PRG_ROM_HI: u16 = 0xFFFF;
+
+    fn read_u8(self: Bus, addr: u16) u8 {
         // TODO: add logging
-        return switch (pos) {
-            0x0000...0x1FFF => {
-                return self.cpu_ram[pos & 0x07FF];
+        return switch (addr) {
+            CPU_RAM_LO...CPU_RAM_HI => self.cpu_mem[addr & 0x07FF],
+            PRG_ROM_LO...PRG_ROM_HI => {
+                var a = addr;
+                if (a >= self.prg_rom_mirror) {
+                    a -= 0x4000;
+                }
+                return self.cpu_mem[a];
             },
-            0x2000...0x3FFF => {
-                return 0;
-            },
-            else => 0,
+            else => unreachable,
         };
     }
 
-    fn write_u8(self: *Bus, pos: u16, data: u8) void {
+    fn write_u8(self: *Bus, addr: u16, data: u8) void {
         // TODO: add logging
-        switch (pos) {
-            0x0000...0x1FFF => {
-                self.cpu_ram[pos & 0x07FF] = data;
-            },
-            0x2000...0x3FFF => {},
-            else => {},
+        switch (addr) {
+            CPU_RAM_LO...CPU_RAM_HI => self.cpu_mem[addr & 0x07FF] = data,
+            PRG_ROM_LO...PRG_ROM_HI => unreachable,
+            else => unreachable,
         }
     }
 
-    fn read_u16(self: Bus, pos: u16) u16 {
-        const hi: u16 = @as(u16, self.read_u8(pos + 1)) << 8;
-        const lo: u16 = self.read_u8(pos);
+    fn read_u16(self: Bus, addr: u16) u16 {
+        const hi: u16 = @as(u16, self.read_u8(addr + 1)) << 8;
+        const lo: u16 = self.read_u8(addr);
         return hi | lo;
     }
 
-    fn write_u16(self: *Bus, pos: u16, data: u16) void {
-        self.write_u8(pos, (data & 0xFF));
-        self.write_u8(pos + 1, (data >> 8));
+    fn write_u16(self: *Bus, addr: u16, data: u16) void {
+        self.write_u8(addr, (data & 0xFF));
+        self.write_u8(addr + 1, (data >> 8));
     }
 };
 
@@ -306,14 +311,14 @@ const Cpu = struct {
         self.reg.pc = self.bus.read_u16(0x00FC);
     }
 
-    pub fn insert(self: *Cpu, cartridge: Cartridge) void {
-        std.mem.copyForwards(u8, self.bus.cpu_ram[0x0000..0x0800], &cartridge);
+    pub fn insert(self: *Cpu, cartridge: [0x800]u8) void {
+        std.mem.copyForwards(u8, self.bus.cpu_mem[0x0000..0x0800], &cartridge);
         self.reset();
     }
 
     pub fn display(self: Cpu) void {
         std.debug.print("\n", .{});
-        for (0.., self.bus.cpu_ram) |i, m| {
+        for (0.., self.bus.cpu_mem) |i, m| {
             if (m > 0) {
                 std.debug.print("0x{X}: 0x{X}\n", .{ i, m });
             }
@@ -322,7 +327,9 @@ const Cpu = struct {
 };
 
 test "cpu" {
-    var cartridge: Cartridge = undefined;
+    var bus: Bus = Bus.init();
+    var cpu: Cpu = Cpu.init(&bus);
+    var cartridge: [0x800]u8 = undefined;
     @memset(&cartridge, 0x00);
     cartridge[0x0000] = @intFromEnum(Op.LDA_I);
     cartridge[0x0001] = 0x69;
@@ -333,13 +340,10 @@ test "cpu" {
     cartridge[0x0006] = @intFromEnum(Op.RET);
     cartridge[0x00FC] = 0x00;
     cartridge[0x00FD] = 0x00;
-    var bus: Bus = Bus.init();
-    var cpu: Cpu = Cpu.init(&bus);
-    @memset(&cpu.bus.cpu_ram, 0x00);
     cpu.insert(cartridge);
     cpu.exec();
     cpu.display();
-    try std.testing.expectEqual(0x69, cpu.bus.cpu_ram[0x5A]);
+    try std.testing.expectEqual(0x69, cpu.bus.cpu_mem[0x5A]);
 }
 
 pub fn main() void {
