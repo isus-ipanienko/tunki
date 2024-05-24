@@ -148,63 +148,49 @@ const Cpu = struct {
         };
     }
 
-    fn addr_immediate(self: *Cpu) u16 {
+    fn pc_consume(self: *Cpu, inc: u16) u16 {
         const pc: u16 = self.reg.pc;
-        self.reg.pc += 1;
+        self.reg.pc +%= inc;
         return pc;
     }
 
+    fn addr_immediate(self: *Cpu) u16 {
+        return self.pc_consume(1);
+    }
+
     fn addr_zero_page(self: *Cpu) u16 {
-        const pc: u16 = self.reg.pc;
-        self.reg.pc += 1;
-        return self.bus.cpu_read_u8(pc);
+        return self.bus.cpu_read_u8(self.pc_consume(1));
     }
 
     fn addr_zero_page_x(self: *Cpu) u16 {
-        const pc: u16 = self.reg.pc;
-        self.reg.pc += 1;
-        const ret: u8 = self.bus.cpu_read_u8(pc) +% self.reg.x;
-        return ret;
+        return self.bus.cpu_read_u8(self.pc_consume(1)) +% self.reg.x;
     }
 
     fn addr_zero_page_y(self: *Cpu) u16 {
-        const pc: u16 = self.reg.pc;
-        self.reg.pc += 1;
-        const ret: u8 = self.bus.cpu_read_u8(pc) +% self.reg.y;
-        return ret;
+        return self.bus.cpu_read_u8(self.pc_consume(1)) +% self.reg.y;
     }
 
     fn addr_absolute(self: *Cpu) u16 {
-        const pc: u16 = self.reg.pc;
-        self.reg.pc += 2;
-        return self.bus.cpu_read_u16(pc);
+        return self.bus.cpu_read_u16(self.pc_consume(2));
     }
 
     fn addr_absolute_x(self: *Cpu) u16 {
-        const pc: u16 = self.reg.pc;
-        self.reg.pc += 2;
-        return self.bus.cpu_read_u16(pc) +% @as(u16, self.reg.x);
+        return self.bus.cpu_read_u16(self.pc_consume(2)) +% @as(u16, self.reg.x);
     }
 
     fn addr_absolute_y(self: *Cpu) u16 {
-        const pc: u16 = self.reg.pc;
-        self.reg.pc += 2;
-        return self.bus.cpu_read_u16(pc) +% @as(u16, self.reg.y);
+        return self.bus.cpu_read_u16(self.pc_consume(2)) +% @as(u16, self.reg.y);
     }
 
     fn addr_indirect_x(self: *Cpu) u16 {
-        const pc: u16 = self.reg.pc;
-        self.reg.pc += 1;
-        const ptr: u8 = self.bus.cpu_read_u8(pc) +% self.reg.x;
+        const ptr: u8 = self.bus.cpu_read_u8(self.pc_consume(1)) +% self.reg.x;
         const hi: u16 = @as(u16, self.bus.cpu_read_u8(ptr +% 1)) << 8;
         const lo: u16 = @as(u16, self.bus.cpu_read_u8(ptr));
         return hi | lo;
     }
 
     fn addr_indirect_y(self: *Cpu) u16 {
-        const pc: u16 = self.reg.pc;
-        self.reg.pc += 1;
-        const ptr: u8 = self.bus.cpu_read_u8(pc);
+        const ptr: u8 = self.bus.cpu_read_u8(self.pc_consume(1));
         const hi: u16 = @as(u16, self.bus.cpu_read_u8(ptr +% 1)) << 8;
         const lo: u16 = @as(u16, self.bus.cpu_read_u8(ptr));
         return (hi | lo) +% @as(u16, self.reg.y);
@@ -265,8 +251,7 @@ const Cpu = struct {
     pub fn exec(self: *Cpu) void {
         var opcode: Op = undefined;
         while (true) {
-            opcode = @enumFromInt(self.bus.cpu_read_u8(self.reg.pc));
-            self.reg.pc += 1;
+            opcode = @enumFromInt(self.bus.cpu_read_u8(self.pc_consume(1)));
             switch (opcode) {
                 Op.STA_ZP => {
                     self.sta(self.addr_zero_page());
@@ -384,22 +369,13 @@ const Cpu = struct {
     }
 
     pub fn reset(self: *Cpu) void {
-        self.reg.sp = 0;
-        self.reg.a = 0;
-        self.reg.x = 0;
-        self.reg.y = 0;
-        self.flags.carry = false;
-        self.flags.zero = true;
-        self.flags.interrupt_disable = true;
-        self.flags.decimal_mode = false;
-        self.flags.break_command = false;
-        self.flags.overflow = false;
-        self.flags.negative = false;
-        self.reg.pc = self.bus.cpu_read_u16(0x00FC);
+        self.reg = Registers.init();
+        self.flags = Flags.init();
+        self.reg.pc = self.bus.cpu_read_u16(0xFFFC);
     }
 
-    pub fn insert(self: *Cpu, cartridge: [0x800]u8) void {
-        std.mem.copyForwards(u8, self.bus.cpu_mem[0x0000..0x0800], &cartridge);
+    pub fn insert(self: *Cpu, cartridge: [0x4000]u8) void {
+        std.mem.copyForwards(u8, self.bus.cpu_mem[0x8000..0xC000], &cartridge);
         self.reset();
     }
 
@@ -416,7 +392,7 @@ const Cpu = struct {
 test "cpu" {
     var bus: Bus = Bus.init();
     var cpu: Cpu = Cpu.init(&bus);
-    var cartridge: [0x800]u8 = undefined;
+    var cartridge: [0x4000]u8 = undefined;
     @memset(&cartridge, 0x00);
     cartridge[0x0000] = @intFromEnum(Op.LDA_I);
     cartridge[0x0001] = 0x69;
@@ -425,8 +401,8 @@ test "cpu" {
     cartridge[0x0004] = @intFromEnum(Op.STA_ZPX);
     cartridge[0x0005] = 0xF0;
     cartridge[0x0006] = @intFromEnum(Op.RET);
-    cartridge[0x00FC] = 0x00;
-    cartridge[0x00FD] = 0x00;
+    cartridge[0x3FFC] = 0x00;
+    cartridge[0x3FFD] = 0x80;
     cpu.insert(cartridge);
     cpu.exec();
     cpu.display();
