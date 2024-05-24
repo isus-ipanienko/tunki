@@ -1,29 +1,32 @@
 const std = @import("std");
 
 const Bus = struct {
-    cpu_mem: [0x10000]u8,
-    prg_rom_mirror: usize,
+    const CPU_MEM_SIZE: usize = 0x10000;
+    const CPU_RAM_LO: u16 = 0x0000;
+    const CPU_RAM_HI: u16 = 0x1FFF;
+    const CPU_RAM_CHUNK: u16 = 0x7FF;
+    const PRG_ROM_LO: u16 = 0x8000;
+    const PRG_ROM_HI: u16 = 0xFFFF;
+    const PRG_ROM_CHUNK: u16 = 0x4000;
+
+    cpu_mem: [CPU_MEM_SIZE]u8,
+    prg_rom_mirror: u16,
 
     pub fn init() Bus {
         return Bus{
-            .cpu_mem = [_]u8{0} ** 0x10000,
-            .prg_rom_mirror = 0x8000 + 0x4000,
+            .cpu_mem = [_]u8{0} ** CPU_MEM_SIZE,
+            .prg_rom_mirror = PRG_ROM_LO + PRG_ROM_CHUNK,
         };
     }
 
-    const CPU_RAM_LO: u16 = 0x0000;
-    const CPU_RAM_HI: u16 = 0x1FFF;
-    const PRG_ROM_LO: u16 = 0x8000;
-    const PRG_ROM_HI: u16 = 0xFFFF;
-
-    fn read_u8(self: Bus, addr: u16) u8 {
+    fn cpu_read_u8(self: Bus, addr: u16) u8 {
         // TODO: add logging
         return switch (addr) {
-            CPU_RAM_LO...CPU_RAM_HI => self.cpu_mem[addr & 0x07FF],
+            CPU_RAM_LO...CPU_RAM_HI => self.cpu_mem[addr & CPU_RAM_CHUNK],
             PRG_ROM_LO...PRG_ROM_HI => {
                 var a = addr;
                 if (a >= self.prg_rom_mirror) {
-                    a -= 0x4000;
+                    a -= PRG_ROM_CHUNK;
                 }
                 return self.cpu_mem[a];
             },
@@ -31,24 +34,24 @@ const Bus = struct {
         };
     }
 
-    fn write_u8(self: *Bus, addr: u16, data: u8) void {
+    fn cpu_write_u8(self: *Bus, addr: u16, data: u8) void {
         // TODO: add logging
         switch (addr) {
-            CPU_RAM_LO...CPU_RAM_HI => self.cpu_mem[addr & 0x07FF] = data,
+            CPU_RAM_LO...CPU_RAM_HI => self.cpu_mem[addr & CPU_RAM_CHUNK] = data,
             PRG_ROM_LO...PRG_ROM_HI => unreachable,
             else => unreachable,
         }
     }
 
-    fn read_u16(self: Bus, addr: u16) u16 {
-        const hi: u16 = @as(u16, self.read_u8(addr + 1)) << 8;
-        const lo: u16 = self.read_u8(addr);
+    fn cpu_read_u16(self: Bus, addr: u16) u16 {
+        const hi: u16 = @as(u16, self.cpu_read_u8(addr + 1)) << 8;
+        const lo: u16 = self.cpu_read_u8(addr);
         return hi | lo;
     }
 
-    fn write_u16(self: *Bus, addr: u16, data: u16) void {
-        self.write_u8(addr, (data & 0xFF));
-        self.write_u8(addr + 1, (data >> 8));
+    fn cpu_write_u16(self: *Bus, addr: u16, data: u16) void {
+        self.cpu_write_u8(addr, (data & 0xFF));
+        self.cpu_write_u8(addr + 1, (data >> 8));
     }
 };
 
@@ -138,95 +141,96 @@ const Cpu = struct {
     fn addr_zero_page(self: *Cpu) u16 {
         const pc: u16 = self.reg.pc;
         self.reg.pc += 1;
-        return self.bus.read_u8(pc);
+        return self.bus.cpu_read_u8(pc);
     }
 
     fn addr_zero_page_x(self: *Cpu) u16 {
         const pc: u16 = self.reg.pc;
         self.reg.pc += 1;
-        const ret: u8 = self.bus.read_u8(pc) +% self.reg.x;
+        const ret: u8 = self.bus.cpu_read_u8(pc) +% self.reg.x;
         return ret;
     }
 
     fn addr_zero_page_y(self: *Cpu) u16 {
         const pc: u16 = self.reg.pc;
         self.reg.pc += 1;
-        const ret: u8 = self.bus.read_u8(pc) +% self.reg.y;
+        const ret: u8 = self.bus.cpu_read_u8(pc) +% self.reg.y;
         return ret;
     }
 
     fn addr_absolute(self: *Cpu) u16 {
         const pc: u16 = self.reg.pc;
         self.reg.pc += 2;
-        return self.bus.read_u16(pc);
+        return self.bus.cpu_read_u16(pc);
     }
 
     fn addr_absolute_x(self: *Cpu) u16 {
         const pc: u16 = self.reg.pc;
         self.reg.pc += 2;
-        return self.bus.read_u16(pc) +% self.reg.x;
+        return self.bus.cpu_read_u16(pc) +% @as(u16, self.reg.x);
     }
 
     fn addr_absolute_y(self: *Cpu) u16 {
         const pc: u16 = self.reg.pc;
         self.reg.pc += 2;
-        return self.bus.read_u16(pc) +% self.reg.y;
+        return self.bus.cpu_read_u16(pc) +% @as(u16, self.reg.y);
     }
 
     fn addr_indirect_x(self: *Cpu) u16 {
         const pc: u16 = self.reg.pc;
         self.reg.pc += 1;
-        const ptr: u8 = self.bus.read_u8(pc) +% self.reg.x;
-        const hi: u16 = @as(u16, self.bus.read_u8(ptr +% 1)) << 8;
-        const lo: u16 = self.bus.read_u8(ptr);
+        const ptr: u8 = self.bus.cpu_read_u8(pc) +% self.reg.x;
+        const hi: u16 = @as(u16, self.bus.cpu_read_u8(ptr +% 1)) << 8;
+        const lo: u16 = @as(u16, self.bus.cpu_read_u8(ptr));
         return hi | lo;
     }
 
     fn addr_indirect_y(self: *Cpu) u16 {
         const pc: u16 = self.reg.pc;
         self.reg.pc += 1;
-        const ptr: u8 = self.bus.read_u8(pc);
-        const hi: u16 = @as(u16, self.bus.read_u8(ptr +% 1)) << 8;
-        const lo: u16 = self.bus.read_u8(ptr);
+        const ptr: u8 = self.bus.cpu_read_u8(pc);
+        const hi: u16 = @as(u16, self.bus.cpu_read_u8(ptr +% 1)) << 8;
+        const lo: u16 = @as(u16, self.bus.cpu_read_u8(ptr));
         return (hi | lo) +% @as(u16, self.reg.y);
     }
 
-    fn sta(self: *Cpu, addr: u16) void {
-        self.bus.write_u8(addr, self.reg.a);
+    fn update_flags_from_value(self: *Cpu, val: u8) void {
+        self.flags.zero = val == 0;
+        self.flags.negative = val & 0x80 != 0;
     }
 
-    fn lda(self: *Cpu, addr: u16) void {
-        self.reg.a = self.bus.read_u8(addr);
-        self.flags.zero = self.reg.a == 0;
-        self.flags.negative = self.reg.a & (1 << 7) != 0;
+    fn sta(self: *Cpu, addr: u16) void {
+        self.bus.cpu_write_u8(addr, self.reg.a);
     }
 
     fn stx(self: *Cpu, addr: u16) void {
-        self.bus.write_u8(addr, self.reg.x);
+        self.bus.cpu_write_u8(addr, self.reg.x);
+    }
+
+    fn lda(self: *Cpu, addr: u16) void {
+        self.reg.a = self.bus.cpu_read_u8(addr);
+        update_flags_from_value(self, self.reg.a);
     }
 
     fn ldx(self: *Cpu, addr: u16) void {
-        self.reg.x = self.bus.read_u8(addr);
-        self.flags.zero = self.reg.x == 0;
-        self.flags.negative = self.reg.x & (1 << 7) != 0;
+        self.reg.x = self.bus.cpu_read_u8(addr);
+        update_flags_from_value(self, self.reg.x);
     }
 
     fn tax(self: *Cpu) void {
         self.reg.x = self.reg.a;
-        self.flags.zero = self.reg.x == 0;
-        self.flags.negative = self.reg.x & (1 << 7) != 0;
+        update_flags_from_value(self, self.reg.x);
     }
 
     fn inx(self: *Cpu) void {
         self.reg.x += 1;
-        self.flags.zero = self.reg.x == 0;
-        self.flags.negative = self.reg.x & (1 << 7) != 0;
+        update_flags_from_value(self, self.reg.x);
     }
 
     pub fn exec(self: *Cpu) void {
         var opcode: Op = undefined;
         while (true) {
-            opcode = @enumFromInt(self.bus.read_u8(self.reg.pc));
+            opcode = @enumFromInt(self.bus.cpu_read_u8(self.reg.pc));
             self.reg.pc += 1;
             switch (opcode) {
                 Op.STA_ZP => {
@@ -308,7 +312,7 @@ const Cpu = struct {
         self.flags.break_command = false;
         self.flags.overflow = false;
         self.flags.negative = false;
-        self.reg.pc = self.bus.read_u16(0x00FC);
+        self.reg.pc = self.bus.cpu_read_u16(0x00FC);
     }
 
     pub fn insert(self: *Cpu, cartridge: [0x800]u8) void {
