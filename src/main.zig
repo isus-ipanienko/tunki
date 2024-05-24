@@ -57,10 +57,41 @@ const Bus = struct {
 
 const Op = enum(u8) {
     RET = 0x00,
+    ASL_ZP = 0x06,
+    ASL = 0x0A,
+    ASL_A = 0x0E,
+    BPL = 0x10,
+    ASL_ZPX = 0x16,
+    CLC = 0x18,
+    ASL_AX = 0x1E,
+    AND_IX = 0x21,
+    BIT_ZP = 0x24,
+    AND_ZP = 0x25,
+    AND_I = 0x29,
+    BIT_A = 0x2C,
+    AND_A = 0x2D,
+    BMI = 0x30,
+    AND_IY = 0x31,
+    AND_ZPX = 0x35,
+    AND_AY = 0x39,
+    AND_AX = 0x3D,
+    EOR_ZP = 0x45,
+    EOR_I = 0x49,
+    EOR_A = 0x4D,
+    EOR_AX = 0x5D,
+    EOR_AY = 0x59,
+    EOR_IX = 0x41,
+    JMP_A = 0x4C,
+    EOR_IY = 0x51,
+    EOR_ZPX = 0x55,
+    BVC = 0x50,
+    CLI = 0x58,
     ADC_IX = 0x61,
     ADC_ZP = 0x65,
     ADC_I = 0x69,
+    JMP_I = 0x6C,
     ADC_A = 0x6D,
+    BVS = 0x70,
     ADC_IY = 0x71,
     ADC_ZPX = 0x75,
     ADC_AY = 0x79,
@@ -68,8 +99,10 @@ const Op = enum(u8) {
     STA_IX = 0x81,
     STA_ZP = 0x85,
     STX_ZP = 0x86,
+    DEY = 0x88,
     STA_A = 0x8D,
     STX_A = 0x8E,
+    BCC = 0x90,
     STA_IY = 0x91,
     STA_ZPX = 0x95,
     STX_ZPY = 0x96,
@@ -80,15 +113,43 @@ const Op = enum(u8) {
     LDA_I = 0xA9,
     TAX = 0xAA,
     LDA_A = 0xAD,
+    BCS = 0xB0,
     LDA_IY = 0xB1,
     LDA_ZPX = 0xB5,
     LDA_AX = 0xBD,
+    CLV = 0xB8,
     LDA_AY = 0xB9,
+    CPY_I = 0xC0,
+    CMP_IX = 0xC1,
+    CPY_ZP = 0xC4,
+    CMP_ZP = 0xC5,
+    DEC_ZP = 0xC6,
+    INY = 0xC8,
+    CMP_I = 0xC9,
+    DEX = 0xCA,
+    CPY_A = 0xCC,
+    CMP_A = 0xCD,
+    DEC_A = 0xCE,
+    BNE = 0xD0,
+    CMP_IY = 0xD1,
+    CMP_ZPX = 0xD5,
+    DEC_ZPX = 0xD6,
+    CMP_AY = 0xD9,
+    CMP_AX = 0xDD,
+    DEC_AX = 0xDE,
+    CPX_I = 0xE0,
     SBC_IX = 0xE1,
+    CPX_ZP = 0xE4,
     SBC_ZP = 0xE5,
     INX = 0xE8,
     SBC_I = 0xE9,
+    CPX_A = 0xEC,
     SBC_A = 0xED,
+    INC_ZP = 0xE6,
+    INC_ZPX = 0xF6,
+    INC_A = 0xEE,
+    INC_AX = 0xFE,
+    BEQ = 0xF0,
     SBC_IY = 0xF1,
     SBC_ZPX = 0xF5,
     SBC_AY = 0xF9,
@@ -148,9 +209,9 @@ const Cpu = struct {
         };
     }
 
-    fn pc_consume(self: *Cpu, inc: u16) u16 {
+    fn pc_consume(self: *Cpu, val: u16) u16 {
         const pc: u16 = self.reg.pc;
-        self.reg.pc +%= inc;
+        self.reg.pc +%= val;
         return pc;
     }
 
@@ -229,6 +290,11 @@ const Cpu = struct {
         update_zero_negative_flags(self, self.reg.x);
     }
 
+    fn iny(self: *Cpu) void {
+        self.reg.y += 1;
+        update_zero_negative_flags(self, self.reg.y);
+    }
+
     fn acc(self: *Cpu, val: u8) void {
         const sum: u16 = @as(u16, self.reg.a) +%
             @as(u16, val) +% @as(u16, @intFromBool(self.flags.carry));
@@ -248,11 +314,177 @@ const Cpu = struct {
         self.acc(self.bus.cpu_read_u8(addr));
     }
 
+    fn op_and(self: *Cpu, addr: u16) void {
+        self.reg.a &= self.bus.cpu_read_u8(addr);
+        self.update_zero_negative_flags(self.reg.a);
+    }
+
+    fn asl(self: *Cpu, val: u8) u8 {
+        self.flags.carry = val & 0x80 > 0;
+        const result: u8 = val << 1;
+        self.update_zero_negative_flags(result);
+        return result;
+    }
+
+    fn asl_acc(self: *Cpu) void {
+        self.reg.a = self.asl(self.reg.a);
+    }
+
+    fn asl_addr(self: *Cpu, addr: u16) void {
+        self.bus.cpu_write_u8(addr, self.asl(self.bus.cpu_read_u8(addr)));
+    }
+
+    fn branch_relative(self: *Cpu, cond: bool) void {
+        const offset: i8 = @bitCast(self.bus.cpu_read_u8(self.pc_consume(1)));
+        if (cond) {
+            self.reg.pc = @bitCast(@as(i16, @bitCast(self.reg.pc)) +% offset);
+        }
+    }
+
+    fn bcc(self: *Cpu) void {
+        self.branch_relative(!self.flags.carry);
+    }
+
+    fn bcs(self: *Cpu) void {
+        self.branch_relative(self.flags.carry);
+    }
+
+    fn beq(self: *Cpu) void {
+        self.branch_relative(self.flags.zero);
+    }
+
+    fn bne(self: *Cpu) void {
+        self.branch_relative(!self.flags.zero);
+    }
+
+    fn bmi(self: *Cpu) void {
+        self.branch_relative(self.flags.negative);
+    }
+
+    fn bpl(self: *Cpu) void {
+        self.branch_relative(!self.flags.negative);
+    }
+
+    fn bvc(self: *Cpu) void {
+        self.branch_relative(!self.flags.overflow);
+    }
+
+    fn bvs(self: *Cpu) void {
+        self.branch_relative(self.flags.overflow);
+    }
+
+    fn bit(self: *Cpu, addr: u16) void {
+        const test_val: u8 = self.bus.cpu_read_u8(addr);
+        self.flags.zero = test_val & self.reg.a > 0;
+        self.flags.overflow = test_val & (1 << 6) > 0;
+        self.flags.negative = test_val & (1 << 7) > 0;
+    }
+
+    fn cmp(self: *Cpu, addr: u16) void {
+        const val: u8 = self.bus.cpu_read_u8(addr);
+        self.flags.carry = self.reg.a >= val;
+        self.update_zero_negative_flags(self.reg.a -% val);
+    }
+
+    fn cpx(self: *Cpu, addr: u16) void {
+        const val: u8 = self.bus.cpu_read_u8(addr);
+        self.flags.carry = self.reg.x >= val;
+        self.update_zero_negative_flags(self.reg.x -% val);
+    }
+
+    fn cpy(self: *Cpu, addr: u16) void {
+        const val: u8 = self.bus.cpu_read_u8(addr);
+        self.flags.carry = self.reg.y >= val;
+        self.update_zero_negative_flags(self.reg.y -% val);
+    }
+
+    fn dec(self: *Cpu, addr: u16) void {
+        const result: u8 = self.bus.cpu_read_u8(addr) -% 1;
+        self.bus.cpu_write_u8(addr, result);
+        self.update_zero_negative_flags(result);
+    }
+
+    fn dex(self: *Cpu) void {
+        self.reg.x -%= 1;
+        self.update_zero_negative_flags(self.reg.x);
+    }
+
+    fn dey(self: *Cpu) void {
+        self.reg.y -%= 1;
+        self.update_zero_negative_flags(self.reg.y);
+    }
+
+    fn eor(self: *Cpu, addr: u16) void {
+        self.reg.a ^= self.bus.cpu_read_u8(addr);
+        self.update_zero_negative_flags(self.reg.a);
+    }
+
+    fn inc(self: *Cpu, addr: u16) void {
+        const result: u8 = self.bus.cpu_read_u8(addr) +% 1;
+        self.bus.cpu_write_u8(addr, result);
+        self.update_zero_negative_flags(result);
+    }
+
+    fn jmp(self: *Cpu, addr: u16) void {
+        self.reg.pc = self.bus.cpu_read_u16(addr);
+    }
+
+    fn jmp_bugged(self: *Cpu, addr: u16) void {
+        var ref: u16 = undefined;
+        if (addr & 0x00FF == 0x00FF) {
+            const lo: u16 = self.bus.cpu_read_u8(addr);
+            const hi: u16 = self.bus.cpu_read_u8(addr & 0xFF00);
+            ref = (hi << 8) | lo;
+        } else {
+            ref = self.bus.cpu_read_u16(addr);
+        }
+        self.reg.pc = self.bus.cpu_read_u16(ref);
+    }
+
     pub fn exec(self: *Cpu) void {
         var opcode: Op = undefined;
         while (true) {
             opcode = @enumFromInt(self.bus.cpu_read_u8(self.pc_consume(1)));
             switch (opcode) {
+                Op.ASL_ZP => {
+                    self.asl_addr(self.addr_zero_page());
+                },
+                Op.ASL => {
+                    self.asl_acc();
+                },
+                Op.ASL_A => {
+                    self.asl_addr(self.addr_absolute());
+                },
+                Op.ASL_ZPX => {
+                    self.asl_addr(self.addr_zero_page_x());
+                },
+                Op.ASL_AX => {
+                    self.asl_addr(self.addr_absolute_x());
+                },
+                Op.AND_IX => {
+                    self.op_and(self.addr_indirect_x());
+                },
+                Op.AND_ZP => {
+                    self.op_and(self.addr_zero_page());
+                },
+                Op.AND_I => {
+                    self.op_and(self.addr_immediate());
+                },
+                Op.AND_A => {
+                    self.op_and(self.addr_absolute());
+                },
+                Op.AND_IY => {
+                    self.op_and(self.addr_indirect_y());
+                },
+                Op.AND_ZPX => {
+                    self.op_and(self.addr_zero_page_x());
+                },
+                Op.AND_AY => {
+                    self.op_and(self.addr_absolute_y());
+                },
+                Op.AND_AX => {
+                    self.op_and(self.addr_absolute_x());
+                },
                 Op.STA_ZP => {
                     self.sta(self.addr_zero_page());
                 },
@@ -358,8 +590,152 @@ const Cpu = struct {
                 Op.TAX => {
                     self.tax();
                 },
+                Op.INY => {
+                    self.iny();
+                },
                 Op.INX => {
                     self.inx();
+                },
+                Op.DEX => {
+                    self.dex();
+                },
+                Op.DEY => {
+                    self.dey();
+                },
+                Op.DEC_ZP => {
+                    self.dec(self.addr_zero_page());
+                },
+                Op.DEC_ZPX => {
+                    self.dec(self.addr_zero_page_x());
+                },
+                Op.DEC_A => {
+                    self.dec(self.addr_absolute());
+                },
+                Op.DEC_AX => {
+                    self.dec(self.addr_absolute_x());
+                },
+                Op.CMP_IX => {
+                    self.cmp(self.addr_indirect_x());
+                },
+                Op.CMP_ZP => {
+                    self.cmp(self.addr_zero_page());
+                },
+                Op.CMP_I => {
+                    self.cmp(self.addr_immediate());
+                },
+                Op.CMP_A => {
+                    self.cmp(self.addr_absolute());
+                },
+                Op.CMP_IY => {
+                    self.cmp(self.addr_indirect_y());
+                },
+                Op.CMP_ZPX => {
+                    self.cmp(self.addr_zero_page_x());
+                },
+                Op.CMP_AY => {
+                    self.cmp(self.addr_absolute_y());
+                },
+                Op.CMP_AX => {
+                    self.cmp(self.addr_absolute_x());
+                },
+                Op.CPX_I => {
+                    self.cpx(self.addr_immediate());
+                },
+                Op.CPX_A => {
+                    self.cpx(self.addr_absolute());
+                },
+                Op.CPX_ZP => {
+                    self.cpx(self.addr_zero_page());
+                },
+                Op.CPY_I => {
+                    self.cpy(self.addr_immediate());
+                },
+                Op.CPY_A => {
+                    self.cpy(self.addr_absolute());
+                },
+                Op.CPY_ZP => {
+                    self.cpy(self.addr_zero_page());
+                },
+                Op.JMP_A => {
+                    self.jmp(self.addr_absolute());
+                },
+                Op.JMP_I => {
+                    self.jmp_bugged(self.addr_immediate());
+                },
+                Op.BCC => {
+                    self.bcc();
+                },
+                Op.BCS => {
+                    self.bcs();
+                },
+                Op.BEQ => {
+                    self.beq();
+                },
+                Op.BMI => {
+                    self.bmi();
+                },
+                Op.BNE => {
+                    self.bne();
+                },
+                Op.BPL => {
+                    self.bpl();
+                },
+                Op.BVC => {
+                    self.bvc();
+                },
+                Op.BVS => {
+                    self.bvs();
+                },
+                Op.BIT_ZP => {
+                    self.bit(self.addr_zero_page());
+                },
+                Op.BIT_A => {
+                    self.bit(self.addr_absolute());
+                },
+                Op.CLC => {
+                    self.flags.carry = false;
+                },
+                Op.CLI => {
+                    self.flags.interrupt_disable = false;
+                },
+                Op.CLV => {
+                    self.flags.overflow = false;
+                },
+                Op.EOR_ZP => {
+                    self.eor(self.addr_zero_page());
+                },
+                Op.EOR_I => {
+                    self.eor(self.addr_immediate());
+                },
+                Op.EOR_A => {
+                    self.eor(self.addr_absolute());
+                },
+                Op.EOR_AX => {
+                    self.eor(self.addr_absolute_x());
+                },
+                Op.EOR_AY => {
+                    self.eor(self.addr_absolute_y());
+                },
+                Op.EOR_IX => {
+                    self.eor(self.addr_indirect_x());
+                },
+                Op.EOR_IY => {
+                    self.eor(self.addr_indirect_y());
+                },
+                Op.EOR_ZPX => {
+                    self.eor(self.addr_zero_page_x());
+                },
+                Op.INC_ZP => {
+                    self.inc(self.addr_zero_page());
+                },
+                Op.INC_ZPX => {
+                    self.inc(self.addr_zero_page_x());
+                },
+                Op.INC_A => {
+                    self.inc(self.addr_absolute());
+                },
+                Op.INC_AX => {
+                    self.inc(self.addr_absolute_x());
                 },
                 Op.RET => {
                     return;
