@@ -57,16 +57,27 @@ const Bus = struct {
 
 const Op = enum(u8) {
     RET = 0x00,
+    ORA_IX = 0x01,
+    ORA_ZP = 0x05,
     ASL_ZP = 0x06,
+    PHP = 0x08,
+    ORA_I = 0x09,
     ASL = 0x0A,
+    ORA_A = 0x0D,
     ASL_A = 0x0E,
     BPL = 0x10,
+    ORA_IY = 0x11,
+    ORA_ZPX = 0x15,
     ASL_ZPX = 0x16,
     CLC = 0x18,
+    ORA_AY = 0x19,
+    ORA_AX = 0x1D,
     ASL_AX = 0x1E,
+    JSR = 0x20,
     AND_IX = 0x21,
     BIT_ZP = 0x24,
     AND_ZP = 0x25,
+    PLP = 0x28,
     AND_I = 0x29,
     BIT_A = 0x2C,
     AND_A = 0x2D,
@@ -75,19 +86,27 @@ const Op = enum(u8) {
     AND_ZPX = 0x35,
     AND_AY = 0x39,
     AND_AX = 0x3D,
-    EOR_ZP = 0x45,
-    EOR_I = 0x49,
-    EOR_A = 0x4D,
-    EOR_AX = 0x5D,
-    EOR_AY = 0x59,
     EOR_IX = 0x41,
+    EOR_ZP = 0x45,
+    LSR_ZP = 0x46,
+    PHA = 0x48,
+    EOR_I = 0x49,
+    LSR = 0x4A,
     JMP_A = 0x4C,
+    EOR_A = 0x4D,
+    LSR_A = 0x4E,
+    BVC = 0x50,
     EOR_IY = 0x51,
     EOR_ZPX = 0x55,
-    BVC = 0x50,
+    LSR_ZPX = 0x56,
     CLI = 0x58,
+    EOR_AY = 0x59,
+    EOR_AX = 0x5D,
+    LSR_AX = 0x5E,
+    RTS = 0x60,
     ADC_IX = 0x61,
     ADC_ZP = 0x65,
+    PLA = 0x68,
     ADC_I = 0x69,
     JMP_I = 0x6C,
     ADC_A = 0x6D,
@@ -108,17 +127,27 @@ const Op = enum(u8) {
     STX_ZPY = 0x96,
     STA_AX = 0x9D,
     STA_AY = 0x99,
+    LDY_I = 0xA0,
     LDA_IX = 0xA1,
+    LDX_I = 0xA2,
+    LDY_ZP = 0xA4,
     LDA_ZP = 0xA5,
+    LDX_ZP = 0xA6,
     LDA_I = 0xA9,
     TAX = 0xAA,
+    LDY_A = 0xAC,
     LDA_A = 0xAD,
+    LDX_A = 0xAE,
     BCS = 0xB0,
     LDA_IY = 0xB1,
+    LDY_ZPX = 0xB4,
     LDA_ZPX = 0xB5,
-    LDA_AX = 0xBD,
+    LDX_ZPY = 0xB6,
     CLV = 0xB8,
     LDA_AY = 0xB9,
+    LDY_AX = 0xBC,
+    LDA_AX = 0xBD,
+    LDX_AY = 0xBE,
     CPY_I = 0xC0,
     CMP_IX = 0xC1,
     CPY_ZP = 0xC4,
@@ -143,6 +172,7 @@ const Op = enum(u8) {
     SBC_ZP = 0xE5,
     INX = 0xE8,
     SBC_I = 0xE9,
+    NOP = 0xEA,
     CPX_A = 0xEC,
     SBC_A = 0xED,
     INC_ZP = 0xE6,
@@ -157,6 +187,9 @@ const Op = enum(u8) {
 };
 
 const Registers = struct {
+    const STACK_BASE: u16 = 0x0100;
+    const STACK_RESET: u8 = 0xFD;
+
     pc: u16,
     sp: u8,
     a: u8,
@@ -166,7 +199,7 @@ const Registers = struct {
     pub fn init() Registers {
         return Registers{
             .pc = 0,
-            .sp = 0,
+            .sp = STACK_RESET,
             .a = 0,
             .x = 0,
             .y = 0,
@@ -177,6 +210,7 @@ const Registers = struct {
 const Flags = packed struct {
     carry: bool,
     zero: bool,
+    padding: bool,
     interrupt_disable: bool,
     decimal_mode: bool,
     break_command: bool,
@@ -187,6 +221,7 @@ const Flags = packed struct {
         return Flags{
             .carry = false,
             .zero = true,
+            .padding = false,
             .interrupt_disable = true,
             .decimal_mode = false,
             .break_command = false,
@@ -257,6 +292,27 @@ const Cpu = struct {
         return (hi | lo) +% @as(u16, self.reg.y);
     }
 
+    fn stack_pop_u8(self: *Cpu) u8 {
+        self.reg.sp +%= 1;
+        return self.bus.cpu_read_u8(Registers.STACK_BASE + self.reg.sp);
+    }
+
+    fn stack_push_u8(self: *Cpu, data: u8) void {
+        self.bus.cpu_write_u8(Registers.STACK_BASE + self.reg.sp, data);
+        self.reg.sp -%= 1;
+    }
+
+    fn stack_push_u16(self: *Cpu, data: u16) void {
+        self.stack_push_u8(@truncate(data >> 8));
+        self.stack_push_u8(@truncate(data & 0x00FF));
+    }
+
+    fn stack_pop_u16(self: *Cpu) u16 {
+        const lo: u16 = self.stack_pop_u8();
+        const hi: u16 = self.stack_pop_u8();
+        return (hi << 8) | lo;
+    }
+
     fn update_zero_negative_flags(self: *Cpu, val: u8) void {
         self.flags.zero = val == 0;
         self.flags.negative = val & 0x80 != 0;
@@ -278,6 +334,11 @@ const Cpu = struct {
     fn ldx(self: *Cpu, addr: u16) void {
         self.reg.x = self.bus.cpu_read_u8(addr);
         update_zero_negative_flags(self, self.reg.x);
+    }
+
+    fn ldy(self: *Cpu, addr: u16) void {
+        self.reg.y = self.bus.cpu_read_u8(addr);
+        update_zero_negative_flags(self, self.reg.y);
     }
 
     fn tax(self: *Cpu) void {
@@ -319,6 +380,11 @@ const Cpu = struct {
         self.update_zero_negative_flags(self.reg.a);
     }
 
+    fn ora(self: *Cpu, addr: u16) void {
+        self.reg.a |= self.bus.cpu_read_u8(addr);
+        self.update_zero_negative_flags(self.reg.a);
+    }
+
     fn asl(self: *Cpu, val: u8) u8 {
         self.flags.carry = val & 0x80 > 0;
         const result: u8 = val << 1;
@@ -332,6 +398,21 @@ const Cpu = struct {
 
     fn asl_addr(self: *Cpu, addr: u16) void {
         self.bus.cpu_write_u8(addr, self.asl(self.bus.cpu_read_u8(addr)));
+    }
+
+    fn lsr(self: *Cpu, val: u8) u8 {
+        self.flags.carry = val & 0x01 > 0;
+        const result: u8 = val >> 1;
+        self.update_zero_negative_flags(result);
+        return result;
+    }
+
+    fn lsr_acc(self: *Cpu) void {
+        self.reg.a = self.lsr(self.reg.a);
+    }
+
+    fn lsr_addr(self: *Cpu, addr: u16) void {
+        self.bus.cpu_write_u8(addr, self.lsr(self.bus.cpu_read_u8(addr)));
     }
 
     fn branch_relative(self: *Cpu, cond: bool) void {
@@ -441,6 +522,15 @@ const Cpu = struct {
         self.reg.pc = self.bus.cpu_read_u16(ref);
     }
 
+    fn jsr(self: *Cpu) void {
+        self.stack_push_u16(self.reg.pc +% 1);
+        self.reg.pc = self.bus.cpu_read_u16(self.reg.pc);
+    }
+
+    fn rts(self: *Cpu) void {
+        self.reg.pc = self.stack_pop_u16() +% 1;
+    }
+
     pub fn exec(self: *Cpu) void {
         var opcode: Op = undefined;
         while (true) {
@@ -460,6 +550,21 @@ const Cpu = struct {
                 },
                 Op.ASL_AX => {
                     self.asl_addr(self.addr_absolute_x());
+                },
+                Op.LSR => {
+                    self.lsr_acc();
+                },
+                Op.LSR_ZP => {
+                    self.lsr_addr(self.addr_zero_page());
+                },
+                Op.LSR_ZPX => {
+                    self.lsr_addr(self.addr_zero_page_x());
+                },
+                Op.LSR_A => {
+                    self.lsr_addr(self.addr_absolute());
+                },
+                Op.LSR_AX => {
+                    self.lsr_addr(self.addr_absolute_x());
                 },
                 Op.AND_IX => {
                     self.op_and(self.addr_indirect_x());
@@ -484,6 +589,30 @@ const Cpu = struct {
                 },
                 Op.AND_AX => {
                     self.op_and(self.addr_absolute_x());
+                },
+                Op.ORA_I => {
+                    self.ora(self.addr_immediate());
+                },
+                Op.ORA_ZP => {
+                    self.ora(self.addr_zero_page());
+                },
+                Op.ORA_ZPX => {
+                    self.ora(self.addr_zero_page_x());
+                },
+                Op.ORA_A => {
+                    self.ora(self.addr_absolute());
+                },
+                Op.ORA_AX => {
+                    self.ora(self.addr_absolute_x());
+                },
+                Op.ORA_AY => {
+                    self.ora(self.addr_absolute_y());
+                },
+                Op.ORA_IX => {
+                    self.ora(self.addr_indirect_x());
+                },
+                Op.ORA_IY => {
+                    self.ora(self.addr_indirect_y());
                 },
                 Op.STA_ZP => {
                     self.sta(self.addr_zero_page());
@@ -529,6 +658,36 @@ const Cpu = struct {
                 },
                 Op.LDA_IY => {
                     self.lda(self.addr_indirect_y());
+                },
+                Op.LDX_I => {
+                    self.ldx(self.addr_immediate());
+                },
+                Op.LDX_ZP => {
+                    self.ldx(self.addr_zero_page());
+                },
+                Op.LDX_ZPY => {
+                    self.ldx(self.addr_zero_page_y());
+                },
+                Op.LDX_A => {
+                    self.ldx(self.addr_absolute());
+                },
+                Op.LDX_AY => {
+                    self.ldx(self.addr_absolute_y());
+                },
+                Op.LDY_I => {
+                    self.ldy(self.addr_immediate());
+                },
+                Op.LDY_ZP => {
+                    self.ldy(self.addr_zero_page());
+                },
+                Op.LDY_ZPX => {
+                    self.ldy(self.addr_zero_page_x());
+                },
+                Op.LDY_A => {
+                    self.ldy(self.addr_absolute());
+                },
+                Op.LDY_AX => {
+                    self.ldy(self.addr_absolute_x());
                 },
                 Op.STX_ZP => {
                     self.stx(self.addr_zero_page());
@@ -662,6 +821,12 @@ const Cpu = struct {
                 Op.JMP_I => {
                     self.jmp_bugged(self.addr_immediate());
                 },
+                Op.JSR => {
+                    self.jsr();
+                },
+                Op.RTS => {
+                    self.rts();
+                },
                 Op.BCC => {
                     self.bcc();
                 },
@@ -737,6 +902,20 @@ const Cpu = struct {
                 Op.INC_AX => {
                     self.inc(self.addr_absolute_x());
                 },
+                Op.PHA => {
+                    self.stack_push_u8(self.reg.a);
+                },
+                Op.PHP => {
+                    self.stack_push_u8(@bitCast(self.flags));
+                },
+                Op.PLA => {
+                    self.reg.a = self.stack_pop_u8();
+                    self.update_zero_negative_flags(self.reg.a);
+                },
+                Op.PLP => {
+                    self.flags = @bitCast(self.stack_pop_u8());
+                },
+                Op.NOP => {},
                 Op.RET => {
                     return;
                 },
