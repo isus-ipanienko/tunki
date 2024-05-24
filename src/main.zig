@@ -57,6 +57,14 @@ const Bus = struct {
 
 const Op = enum(u8) {
     RET = 0x00,
+    ADC_IX = 0x61,
+    ADC_ZP = 0x65,
+    ADC_I = 0x69,
+    ADC_A = 0x6D,
+    ADC_IY = 0x71,
+    ADC_ZPX = 0x75,
+    ADC_AY = 0x79,
+    ADC_AX = 0x7D,
     STA_IX = 0x81,
     STA_ZP = 0x85,
     STX_ZP = 0x86,
@@ -76,7 +84,15 @@ const Op = enum(u8) {
     LDA_ZPX = 0xB5,
     LDA_AX = 0xBD,
     LDA_AY = 0xB9,
+    SBC_IX = 0xE1,
+    SBC_ZP = 0xE5,
     INX = 0xE8,
+    SBC_I = 0xE9,
+    SBC_A = 0xED,
+    SBC_IY = 0xF1,
+    SBC_ZPX = 0xF5,
+    SBC_AY = 0xF9,
+    SBC_AX = 0xFD,
 };
 
 const Registers = struct {
@@ -194,7 +210,7 @@ const Cpu = struct {
         return (hi | lo) +% @as(u16, self.reg.y);
     }
 
-    fn update_flags_from_value(self: *Cpu, val: u8) void {
+    fn update_zero_negative_flags(self: *Cpu, val: u8) void {
         self.flags.zero = val == 0;
         self.flags.negative = val & 0x80 != 0;
     }
@@ -209,22 +225,41 @@ const Cpu = struct {
 
     fn lda(self: *Cpu, addr: u16) void {
         self.reg.a = self.bus.cpu_read_u8(addr);
-        update_flags_from_value(self, self.reg.a);
+        update_zero_negative_flags(self, self.reg.a);
     }
 
     fn ldx(self: *Cpu, addr: u16) void {
         self.reg.x = self.bus.cpu_read_u8(addr);
-        update_flags_from_value(self, self.reg.x);
+        update_zero_negative_flags(self, self.reg.x);
     }
 
     fn tax(self: *Cpu) void {
         self.reg.x = self.reg.a;
-        update_flags_from_value(self, self.reg.x);
+        update_zero_negative_flags(self, self.reg.x);
     }
 
     fn inx(self: *Cpu) void {
         self.reg.x += 1;
-        update_flags_from_value(self, self.reg.x);
+        update_zero_negative_flags(self, self.reg.x);
+    }
+
+    fn acc(self: *Cpu, val: u8) void {
+        const sum: u16 = @as(u16, self.reg.a) +%
+            @as(u16, val) +% @as(u16, @intFromBool(self.flags.carry));
+        const carry_in: bool = self.flags.carry;
+        self.flags.carry = sum > 0x00FF;
+        self.flags.overflow = carry_in != self.flags.carry;
+        update_zero_negative_flags(self, @truncate(sum));
+        self.reg.a = @truncate(sum);
+    }
+
+    fn sbc(self: *Cpu, addr: u16) void {
+        const val: i8 = @bitCast(self.bus.cpu_read_u8(addr));
+        self.acc(@bitCast(-val -% 1));
+    }
+
+    fn adc(self: *Cpu, addr: u16) void {
+        self.acc(self.bus.cpu_read_u8(addr));
     }
 
     pub fn exec(self: *Cpu) void {
@@ -286,6 +321,54 @@ const Cpu = struct {
                 },
                 Op.STX_A => {
                     self.stx(self.addr_absolute());
+                },
+                Op.ADC_IX => {
+                    self.adc(self.addr_indirect_x());
+                },
+                Op.ADC_ZP => {
+                    self.adc(self.addr_zero_page());
+                },
+                Op.ADC_I => {
+                    self.adc(self.addr_immediate());
+                },
+                Op.ADC_A => {
+                    self.adc(self.addr_absolute());
+                },
+                Op.ADC_IY => {
+                    self.adc(self.addr_indirect_y());
+                },
+                Op.ADC_ZPX => {
+                    self.adc(self.addr_zero_page_x());
+                },
+                Op.ADC_AY => {
+                    self.adc(self.addr_absolute_y());
+                },
+                Op.ADC_AX => {
+                    self.adc(self.addr_absolute_x());
+                },
+                Op.SBC_IX => {
+                    self.sbc(self.addr_indirect_x());
+                },
+                Op.SBC_ZP => {
+                    self.sbc(self.addr_zero_page());
+                },
+                Op.SBC_I => {
+                    self.sbc(self.addr_immediate());
+                },
+                Op.SBC_A => {
+                    self.sbc(self.addr_absolute());
+                },
+                Op.SBC_IY => {
+                    self.sbc(self.addr_indirect_y());
+                },
+                Op.SBC_ZPX => {
+                    self.sbc(self.addr_zero_page_x());
+                },
+                Op.SBC_AY => {
+                    self.sbc(self.addr_absolute_y());
+                },
+                Op.SBC_AX => {
+                    self.sbc(self.addr_absolute_x());
                 },
                 Op.TAX => {
                     self.tax();
