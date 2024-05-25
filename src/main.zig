@@ -341,21 +341,6 @@ const Cpu = struct {
         update_zero_negative_flags(self, self.reg.y);
     }
 
-    fn tax(self: *Cpu) void {
-        self.reg.x = self.reg.a;
-        update_zero_negative_flags(self, self.reg.x);
-    }
-
-    fn inx(self: *Cpu) void {
-        self.reg.x +%= 1;
-        update_zero_negative_flags(self, self.reg.x);
-    }
-
-    fn iny(self: *Cpu) void {
-        self.reg.y +%= 1;
-        update_zero_negative_flags(self, self.reg.y);
-    }
-
     fn acc(self: *Cpu, val: u8) void {
         const sum: u16 = @as(u16, self.reg.a) +%
             @as(u16, val) +% @as(u16, @intFromBool(self.flags.carry));
@@ -421,38 +406,6 @@ const Cpu = struct {
         }
     }
 
-    fn bcc(self: *Cpu) void {
-        self.branch_relative(!self.flags.carry);
-    }
-
-    fn bcs(self: *Cpu) void {
-        self.branch_relative(self.flags.carry);
-    }
-
-    fn beq(self: *Cpu) void {
-        self.branch_relative(self.flags.zero);
-    }
-
-    fn bne(self: *Cpu) void {
-        self.branch_relative(!self.flags.zero);
-    }
-
-    fn bmi(self: *Cpu) void {
-        self.branch_relative(self.flags.negative);
-    }
-
-    fn bpl(self: *Cpu) void {
-        self.branch_relative(!self.flags.negative);
-    }
-
-    fn bvc(self: *Cpu) void {
-        self.branch_relative(!self.flags.overflow);
-    }
-
-    fn bvs(self: *Cpu) void {
-        self.branch_relative(self.flags.overflow);
-    }
-
     fn bit(self: *Cpu, addr: u16) void {
         const test_val: u8 = self.bus.cpu_read_u8(addr);
         self.flags.zero = test_val & self.reg.a == 0;
@@ -484,16 +437,6 @@ const Cpu = struct {
         self.update_zero_negative_flags(result);
     }
 
-    fn dex(self: *Cpu) void {
-        self.reg.x -%= 1;
-        self.update_zero_negative_flags(self.reg.x);
-    }
-
-    fn dey(self: *Cpu) void {
-        self.reg.y -%= 1;
-        self.update_zero_negative_flags(self.reg.y);
-    }
-
     fn eor(self: *Cpu, addr: u16) void {
         self.reg.a ^= self.bus.cpu_read_u8(addr);
         self.update_zero_negative_flags(self.reg.a);
@@ -505,41 +448,16 @@ const Cpu = struct {
         self.update_zero_negative_flags(result);
     }
 
-    fn jmp(self: *Cpu, addr: u16) void {
-        self.reg.pc = self.bus.cpu_read_u16(addr);
-    }
-
-    fn jmp_bugged(self: *Cpu, addr: u16) void {
-        var ref: u16 = undefined;
-        if (addr & 0x00FF == 0x00FF) {
-            const lo: u16 = self.bus.cpu_read_u8(addr);
-            const hi: u16 = self.bus.cpu_read_u8(addr & 0xFF00);
-            ref = (hi << 8) | lo;
-        } else {
-            ref = self.bus.cpu_read_u16(addr);
-        }
-        self.reg.pc = self.bus.cpu_read_u16(ref);
-    }
-
-    fn jsr(self: *Cpu) void {
-        self.stack_push_u16(self.reg.pc +% 1);
-        self.reg.pc = self.bus.cpu_read_u16(self.reg.pc);
-    }
-
-    fn rts(self: *Cpu) void {
-        self.reg.pc = self.stack_pop_u16() +% 1;
-    }
-
     pub fn exec(self: *Cpu) void {
         var opcode: Op = undefined;
         while (true) {
             opcode = @enumFromInt(self.bus.cpu_read_u8(self.pc_consume(1)));
             switch (opcode) {
-                Op.ASL_ZP => {
-                    self.asl_addr(self.addr_zero_page());
-                },
                 Op.ASL => {
                     self.asl_acc();
+                },
+                Op.ASL_ZP => {
+                    self.asl_addr(self.addr_zero_page());
                 },
                 Op.ASL_A => {
                     self.asl_addr(self.addr_absolute());
@@ -746,19 +664,36 @@ const Cpu = struct {
                     self.sbc(self.addr_absolute_x());
                 },
                 Op.TAX => {
-                    self.tax();
-                },
-                Op.INY => {
-                    self.iny();
+                    self.reg.x = self.reg.a;
+                    update_zero_negative_flags(self, self.reg.x);
                 },
                 Op.INX => {
-                    self.inx();
+                    self.reg.x +%= 1;
+                    update_zero_negative_flags(self, self.reg.x);
+                },
+                Op.INY => {
+                    self.reg.y +%= 1;
+                    update_zero_negative_flags(self, self.reg.y);
                 },
                 Op.DEX => {
-                    self.dex();
+                    self.reg.x -%= 1;
+                    self.update_zero_negative_flags(self.reg.x);
                 },
                 Op.DEY => {
-                    self.dey();
+                    self.reg.y -%= 1;
+                    self.update_zero_negative_flags(self.reg.y);
+                },
+                Op.INC_ZP => {
+                    self.inc(self.addr_zero_page());
+                },
+                Op.INC_ZPX => {
+                    self.inc(self.addr_zero_page_x());
+                },
+                Op.INC_A => {
+                    self.inc(self.addr_absolute());
+                },
+                Op.INC_AX => {
+                    self.inc(self.addr_absolute_x());
                 },
                 Op.DEC_ZP => {
                     self.dec(self.addr_zero_page());
@@ -815,40 +750,50 @@ const Cpu = struct {
                     self.cpy(self.addr_zero_page());
                 },
                 Op.JMP_A => {
-                    self.jmp(self.addr_absolute());
+                    self.reg.pc = self.bus.cpu_read_u16(self.addr_absolute());
                 },
                 Op.JMP_I => {
-                    self.jmp_bugged(self.addr_immediate());
+                    const addr: u16 = self.addr_immediate();
+                    var ref: u16 = undefined;
+                    if (addr & 0x00FF == 0x00FF) {
+                        const lo: u16 = self.bus.cpu_read_u8(addr);
+                        const hi: u16 = self.bus.cpu_read_u8(addr & 0xFF00);
+                        ref = (hi << 8) | lo;
+                    } else {
+                        ref = self.bus.cpu_read_u16(addr);
+                    }
+                    self.reg.pc = self.bus.cpu_read_u16(ref);
                 },
                 Op.JSR => {
-                    self.jsr();
+                    self.stack_push_u16(self.reg.pc +% 1);
+                    self.reg.pc = self.bus.cpu_read_u16(self.reg.pc);
                 },
                 Op.RTS => {
-                    self.rts();
+                    self.reg.pc = self.stack_pop_u16() +% 1;
                 },
                 Op.BCC => {
-                    self.bcc();
+                    self.branch_relative(!self.flags.carry);
                 },
                 Op.BCS => {
-                    self.bcs();
+                    self.branch_relative(self.flags.carry);
                 },
                 Op.BEQ => {
-                    self.beq();
+                    self.branch_relative(self.flags.zero);
                 },
                 Op.BMI => {
-                    self.bmi();
+                    self.branch_relative(self.flags.negative);
                 },
                 Op.BNE => {
-                    self.bne();
+                    self.branch_relative(!self.flags.zero);
                 },
                 Op.BPL => {
-                    self.bpl();
+                    self.branch_relative(!self.flags.negative);
                 },
                 Op.BVC => {
-                    self.bvc();
+                    self.branch_relative(!self.flags.overflow);
                 },
                 Op.BVS => {
-                    self.bvs();
+                    self.branch_relative(self.flags.overflow);
                 },
                 Op.BIT_ZP => {
                     self.bit(self.addr_zero_page());
@@ -888,18 +833,6 @@ const Cpu = struct {
                 },
                 Op.EOR_ZPX => {
                     self.eor(self.addr_zero_page_x());
-                },
-                Op.INC_ZP => {
-                    self.inc(self.addr_zero_page());
-                },
-                Op.INC_ZPX => {
-                    self.inc(self.addr_zero_page_x());
-                },
-                Op.INC_A => {
-                    self.inc(self.addr_absolute());
-                },
-                Op.INC_AX => {
-                    self.inc(self.addr_absolute_x());
                 },
                 Op.PHA => {
                     self.stack_push_u8(self.reg.a);
