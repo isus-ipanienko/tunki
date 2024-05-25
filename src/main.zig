@@ -347,23 +347,22 @@ const Cpu = struct {
     }
 
     fn inx(self: *Cpu) void {
-        self.reg.x += 1;
+        self.reg.x +%= 1;
         update_zero_negative_flags(self, self.reg.x);
     }
 
     fn iny(self: *Cpu) void {
-        self.reg.y += 1;
+        self.reg.y +%= 1;
         update_zero_negative_flags(self, self.reg.y);
     }
 
     fn acc(self: *Cpu, val: u8) void {
         const sum: u16 = @as(u16, self.reg.a) +%
             @as(u16, val) +% @as(u16, @intFromBool(self.flags.carry));
-        const carry_in: bool = self.flags.carry;
         self.flags.carry = sum > 0x00FF;
-        self.flags.overflow = carry_in != self.flags.carry;
-        update_zero_negative_flags(self, @truncate(sum));
+        self.flags.overflow = sum ^ (self.reg.a & val) & 0x80 != 0;
         self.reg.a = @truncate(sum);
+        update_zero_negative_flags(self, self.reg.a);
     }
 
     fn sbc(self: *Cpu, addr: u16) void {
@@ -386,7 +385,7 @@ const Cpu = struct {
     }
 
     fn asl(self: *Cpu, val: u8) u8 {
-        self.flags.carry = val & 0x80 > 0;
+        self.flags.carry = val & 0x80 != 0;
         const result: u8 = val << 1;
         self.update_zero_negative_flags(result);
         return result;
@@ -401,7 +400,7 @@ const Cpu = struct {
     }
 
     fn lsr(self: *Cpu, val: u8) u8 {
-        self.flags.carry = val & 0x01 > 0;
+        self.flags.carry = val & 0x01 != 0;
         const result: u8 = val >> 1;
         self.update_zero_negative_flags(result);
         return result;
@@ -456,9 +455,9 @@ const Cpu = struct {
 
     fn bit(self: *Cpu, addr: u16) void {
         const test_val: u8 = self.bus.cpu_read_u8(addr);
-        self.flags.zero = test_val & self.reg.a > 0;
-        self.flags.overflow = test_val & (1 << 6) > 0;
-        self.flags.negative = test_val & (1 << 7) > 0;
+        self.flags.zero = test_val & self.reg.a == 0;
+        self.flags.overflow = test_val & (1 << 6) != 0;
+        self.flags.negative = test_val & (1 << 7) != 0;
     }
 
     fn cmp(self: *Cpu, addr: u16) void {
