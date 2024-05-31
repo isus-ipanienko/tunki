@@ -621,13 +621,19 @@ const Flags = packed struct {
 const Cpu = struct {
     reg: Registers,
     flags: Flags,
+    cycles: u64,
     bus: *Bus,
+    binary: if (dbg) [9]u8 else void,
+    assembly: if (dbg) [31]u8 else void,
 
     pub fn init(bus: *Bus) Cpu {
         return Cpu{
             .reg = Registers.init(),
             .flags = Flags.init(),
+            .cycles = 0,
             .bus = bus,
+            .binary = undefined,
+            .assembly = undefined,
         };
     }
 
@@ -924,13 +930,80 @@ const Cpu = struct {
         self.bus.cpu_write_u8(addr, self.reg.a & self.reg.x);
     }
 
-    pub fn exec(self: *Cpu, trace: if (dbg) *[73]u8 else void) bool {
-        const opcode: Op = @enumFromInt(self.bus.cpu_read_u8(self.pc_consume(1)));
-        if (dbg) {
-            // TODO: add tracing
-            _ = std.fmt.bufPrint(trace, "opcode: {}", .{opcode}) catch {
+    fn jmp_bugged(self: *Cpu, addr: u16) void {
+        var ref: u16 = undefined;
+        if (addr & 0x00FF == 0x00FF) {
+            const lo: u16 = self.bus.cpu_read_u8(addr);
+            const hi: u16 = self.bus.cpu_read_u8(addr & 0xFF00);
+            ref = (hi << 8) | lo;
+        } else {
+            ref = self.bus.cpu_read_u16(addr);
+        }
+        self.reg.pc = self.bus.cpu_read_u16(ref);
+    }
+
+    fn make_binary(self: *Cpu, a: u8, b: ?u8, c: ?u8) void {
+        if (b != null and c != null) {
+            _ = std.fmt.bufPrint(
+                &self.binary,
+                "{X:0>2} {X:0>2} {X:0>2} ",
+                .{ a, b.?, c.? },
+            ) catch {
                 unreachable;
             };
+        } else if (b != null) {
+            _ = std.fmt.bufPrint(
+                &self.binary,
+                "{X:0>2} {X:0>2}    ",
+                .{ a, b.? },
+            ) catch {
+                unreachable;
+            };
+        } else {
+            _ = std.fmt.bufPrint(
+                &self.binary,
+                "{X:0>2}       ",
+                .{a},
+            ) catch {
+                unreachable;
+            };
+        }
+    }
+
+    fn make_assembly_immediate(self: *Cpu, name: *const [3:0]u8, data: u8) void {
+        _ = std.fmt.bufPrint(
+            &self.assembly,
+            "{s} #${X:0>2}",
+            .{ name, data },
+        ) catch {
+            unreachable;
+        };
+    }
+
+    fn immediate(
+        self: *Cpu,
+        comptime instruction: fn (self: *Cpu, addr: u16) void,
+        opcode: Op,
+        name: if (dbg) *const [3:0]u8 else void,
+    ) void {
+        const addr: u16 = self.addr_immediate();
+        instruction(self, addr);
+        if (dbg) {
+            const data: u8 = self.bus.cpu_read_u8(addr);
+            self.make_binary(@intFromEnum(opcode), data, null);
+            self.make_assembly_immediate(name, data);
+        }
+    }
+
+    pub fn exec(self: *Cpu, trace: if (dbg) *[128]u8 else void) bool {
+        const pc_saved: u16 = self.reg.pc;
+        const opcode: Op = @enumFromInt(self.bus.cpu_read_u8(self.pc_consume(1)));
+        var ret: bool = true;
+        if (dbg) {
+            @memset(trace, ' ');
+            trace[127] = '\n';
+            @memset(&self.binary, ' ');
+            @memset(&self.assembly, ' ');
         }
         switch (opcode) {
             Op.ASL => {
@@ -1000,7 +1073,7 @@ const Cpu = struct {
                 self.op_and(self.addr_zero_page());
             },
             Op.AND_I => {
-                self.op_and(self.addr_immediate());
+                self.immediate(op_and, opcode, "AND");
             },
             Op.AND_A => {
                 self.op_and(self.addr_absolute());
@@ -1018,7 +1091,7 @@ const Cpu = struct {
                 self.op_and(self.addr_absolute_x());
             },
             Op.ORA_I => {
-                self.ora(self.addr_immediate());
+                self.immediate(ora, opcode, "ORA");
             },
             Op.ORA_ZP => {
                 self.ora(self.addr_zero_page());
@@ -1063,7 +1136,7 @@ const Cpu = struct {
                 self.sta(self.addr_indirect_y());
             },
             Op.LDA_I => {
-                self.lda(self.addr_immediate());
+                self.immediate(lda, opcode, "LDA");
             },
             Op.LDA_ZP => {
                 self.lda(self.addr_zero_page());
@@ -1087,7 +1160,7 @@ const Cpu = struct {
                 self.lda(self.addr_indirect_y());
             },
             Op.LDX_I => {
-                self.ldx(self.addr_immediate());
+                self.immediate(ldx, opcode, "LDX");
             },
             Op.LDX_ZP => {
                 self.ldx(self.addr_zero_page());
@@ -1102,7 +1175,7 @@ const Cpu = struct {
                 self.ldx(self.addr_absolute_y());
             },
             Op.LDY_I => {
-                self.ldy(self.addr_immediate());
+                self.immediate(ldy, opcode, "LDY");
             },
             Op.LDY_ZP => {
                 self.ldy(self.addr_zero_page());
@@ -1141,7 +1214,7 @@ const Cpu = struct {
                 self.adc(self.addr_zero_page());
             },
             Op.ADC_I => {
-                self.adc(self.addr_immediate());
+                self.immediate(adc, opcode, "ADC");
             },
             Op.ADC_A => {
                 self.adc(self.addr_absolute());
@@ -1168,7 +1241,7 @@ const Cpu = struct {
                 self.sbc(self.addr_zero_page());
             },
             Op.SBC_I => {
-                self.sbc(self.addr_immediate());
+                self.immediate(sbc, opcode, "SBC");
             },
             Op.SBC_A => {
                 self.sbc(self.addr_absolute());
@@ -1248,7 +1321,7 @@ const Cpu = struct {
                 self.cmp(self.addr_zero_page());
             },
             Op.CMP_I => {
-                self.cmp(self.addr_immediate());
+                self.immediate(cmp, opcode, "CMP");
             },
             Op.CMP_A => {
                 self.cmp(self.addr_absolute());
@@ -1266,7 +1339,7 @@ const Cpu = struct {
                 self.cmp(self.addr_absolute_x());
             },
             Op.CPX_I => {
-                self.cpx(self.addr_immediate());
+                self.immediate(cpx, opcode, "CPX");
             },
             Op.CPX_A => {
                 self.cpx(self.addr_absolute());
@@ -1275,7 +1348,7 @@ const Cpu = struct {
                 self.cpx(self.addr_zero_page());
             },
             Op.CPY_I => {
-                self.cpy(self.addr_immediate());
+                self.immediate(cpy, opcode, "CPY");
             },
             Op.CPY_A => {
                 self.cpy(self.addr_absolute());
@@ -1287,7 +1360,7 @@ const Cpu = struct {
                 self.eor(self.addr_zero_page());
             },
             Op.EOR_I => {
-                self.eor(self.addr_immediate());
+                self.immediate(eor, opcode, "EOR");
             },
             Op.EOR_A => {
                 self.eor(self.addr_absolute());
@@ -1325,16 +1398,7 @@ const Cpu = struct {
                 self.reg.pc = self.bus.cpu_read_u16(self.addr_absolute());
             },
             Op.JMP_I => {
-                const addr: u16 = self.addr_immediate();
-                var ref: u16 = undefined;
-                if (addr & 0x00FF == 0x00FF) {
-                    const lo: u16 = self.bus.cpu_read_u8(addr);
-                    const hi: u16 = self.bus.cpu_read_u8(addr & 0xFF00);
-                    ref = (hi << 8) | lo;
-                } else {
-                    ref = self.bus.cpu_read_u16(addr);
-                }
-                self.reg.pc = self.bus.cpu_read_u16(ref);
+                self.immediate(jmp_bugged, opcode, "JMP");
             },
             Op.JSR => {
                 self.stack_push_u16(self.reg.pc +% 1);
@@ -1412,7 +1476,7 @@ const Cpu = struct {
                 self.reg.pc = self.stack_pop_u16();
             },
             Op.BRK => {
-                return false;
+                ret = false;
             },
             // unofficial
             Op.DCP_IX => {
@@ -1613,7 +1677,27 @@ const Cpu = struct {
                 unreachable;
             },
         }
-        return true;
+        self.cycles += OpCycles[@intFromEnum(opcode)];
+        if (dbg) {
+            _ = std.fmt.bufPrint(
+                trace,
+                "{X:0>4}  {s: <9} {s: <31} A:{X:0>2} X:{X:0>2} Y:{X:0>2} P:{X:0>2} SP:{X:0>2} PPU:TODO CYC:{}",
+                .{
+                    pc_saved,
+                    self.binary,
+                    self.assembly,
+                    self.reg.a,
+                    self.reg.x,
+                    self.reg.y,
+                    @as(u8, @bitCast(self.flags)),
+                    self.reg.sp,
+                    self.cycles,
+                },
+            ) catch {
+                unreachable;
+            };
+        }
+        return ret;
     }
 
     pub fn reset(self: *Cpu) void {
@@ -1625,15 +1709,6 @@ const Cpu = struct {
     pub fn insert(self: *Cpu, cartridge: [0x4000]u8) void {
         std.mem.copyForwards(u8, self.bus.cpu_mem[0x8000..0xC000], &cartridge);
         self.reset();
-    }
-
-    pub fn display(self: Cpu) void {
-        std.debug.print("\n", .{});
-        for (0.., self.bus.cpu_mem) |i, m| {
-            if (m > 0) {
-                std.debug.print("0x{X}: 0x{X}\n", .{ i, m });
-            }
-        }
     }
 };
 
@@ -1652,9 +1727,12 @@ test "cpu" {
     cartridge[0x3FFC] = 0x00;
     cartridge[0x3FFD] = 0x80;
     cpu.insert(cartridge);
-    var trace: [73]u8 = undefined;
-    while (cpu.exec(&trace)) {}
-    cpu.display();
+    std.debug.print("\n", .{});
+    var trace: [128]u8 = undefined;
+    while (cpu.exec(&trace)) {
+        std.debug.print("{s}", .{trace});
+    }
+    std.debug.print("{s}", .{trace});
     try std.testing.expectEqual(0x69, cpu.bus.cpu_mem[0x5A]);
 }
 
