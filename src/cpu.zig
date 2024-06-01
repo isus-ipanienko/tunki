@@ -594,31 +594,274 @@ pub const Cpu = struct {
         return pc;
     }
 
-    fn addr_immediate(self: *Cpu) u16 {
-        return self.pc_consume(1);
+    fn make_binary(self: *Cpu, a: u8, b: ?u8, c: ?u8) void {
+        std.debug.assert(dbg);
+        var b_str: [2]u8 = [_]u8{' '} ** 2;
+        if (b != null) {
+            _ = std.fmt.bufPrint(&b_str, "{X:0>2}", .{b.?}) catch {};
+        }
+        var c_str: [2]u8 = [_]u8{' '} ** 2;
+        if (c != null) {
+            _ = std.fmt.bufPrint(&c_str, "{X:0>2}", .{c.?}) catch {};
+        }
+        _ = std.fmt.bufPrint(&self.binary, "{X:0>2} {s} {s}", .{ a, b_str, c_str }) catch {};
     }
 
-    fn addr_indirect_x(self: *Cpu) u16 {
+    fn local_jump(
+        self: *Cpu,
+        comptime instruction: anytype,
+        name: if (dbg) *const [4:0]u8 else void,
+    ) void {
+        if (dbg) {
+            const bin: u8 = self.bus.cpu_read_u8(self.reg.pc);
+            self.make_binary(@intFromEnum(self.opcode), bin, null);
+            const addr: u16 = @bitCast(@as(i16, @bitCast(self.reg.pc +% 1)) +% @as(i8, @bitCast(bin)));
+            _ = std.fmt.bufPrint(&self.assembly, "{s} ${X:0>4}", .{ name, addr }) catch {};
+        }
+        _ = instruction(self);
+    }
+
+    fn long_jump(
+        self: *Cpu,
+        comptime instruction: anytype,
+        name: if (dbg) *const [4:0]u8 else void,
+    ) void {
+        const addr: u16 = self.bus.cpu_read_u16(self.pc_consume(2));
+        if (dbg) {
+            self.make_binary(@intFromEnum(self.opcode), @truncate(addr & 0xFF), @truncate(addr >> 8));
+            _ = std.fmt.bufPrint(&self.assembly, "{s} ${X:0>4}", .{ name, addr }) catch {};
+        }
+        _ = instruction(self, addr);
+    }
+
+    fn subroutine_jump(
+        self: *Cpu,
+        comptime instruction: anytype,
+        name: if (dbg) *const [4:0]u8 else void,
+    ) void {
+        const addr: u16 = self.bus.cpu_read_u16(self.reg.pc);
+        if (dbg) {
+            self.make_binary(@intFromEnum(self.opcode), @truncate(addr & 0xFF), @truncate(addr >> 8));
+            _ = std.fmt.bufPrint(&self.assembly, "{s} ${X:0>4}", .{ name, addr }) catch {};
+        }
+        _ = instruction(self, addr);
+    }
+
+    fn no_memory(
+        self: *Cpu,
+        comptime instruction: anytype,
+        name: if (dbg) *const [4:0]u8 else void,
+    ) void {
+        if (dbg) {
+            self.make_binary(@intFromEnum(self.opcode), null, null);
+            _ = std.fmt.bufPrint(&self.assembly, "{s}", .{name}) catch {};
+        }
+        _ = instruction(self);
+    }
+
+    fn no_memory_a(
+        self: *Cpu,
+        comptime instruction: anytype,
+        name: if (dbg) *const [4:0]u8 else void,
+    ) void {
+        if (dbg) {
+            self.make_binary(@intFromEnum(self.opcode), null, null);
+            _ = std.fmt.bufPrint(&self.assembly, "{s} A", .{name}) catch {};
+        }
+        _ = instruction(self);
+    }
+
+    fn immediate(
+        self: *Cpu,
+        comptime instruction: anytype,
+        name: if (dbg) *const [4:0]u8 else void,
+    ) void {
+        const addr: u16 = self.pc_consume(1);
+        if (dbg) {
+            const bin: u8 = self.bus.cpu_read_u8(addr);
+            self.make_binary(@intFromEnum(self.opcode), bin, null);
+            _ = std.fmt.bufPrint(&self.assembly, "{s} #${X:0>2}", .{ name, bin }) catch {};
+        }
+        _ = instruction(self, addr);
+    }
+
+    fn zero_page(
+        self: *Cpu,
+        comptime instruction: anytype,
+        name: if (dbg) *const [4:0]u8 else void,
+    ) void {
+        const addr: u8 = self.bus.cpu_read_u8(self.pc_consume(1));
+        if (dbg) {
+            self.make_binary(@intFromEnum(self.opcode), addr, null);
+            _ = std.fmt.bufPrint(
+                &self.assembly,
+                "{s} ${X:0>2} = {X:0>2}",
+                .{ name, addr, self.bus.cpu_read_u8(addr) },
+            ) catch {};
+        }
+        _ = instruction(self, addr);
+    }
+
+    fn zero_page_x(
+        self: *Cpu,
+        comptime instruction: anytype,
+        name: if (dbg) *const [4:0]u8 else void,
+    ) void {
+        const addr: u8 = self.bus.cpu_read_u8(self.pc_consume(1)) +% self.reg.x;
+        if (dbg) {
+            const bin: u8 = self.bus.cpu_read_u8(self.reg.pc - 1);
+            self.make_binary(@intFromEnum(self.opcode), bin, null);
+            _ = std.fmt.bufPrint(
+                &self.assembly,
+                "{s} ${X:0>2},X @ {X:0>2} = {X:0>2}",
+                .{ name, bin, addr, self.bus.cpu_read_u8(addr) },
+            ) catch {};
+        }
+        _ = instruction(self, addr);
+    }
+
+    fn zero_page_y(
+        self: *Cpu,
+        comptime instruction: anytype,
+        name: if (dbg) *const [4:0]u8 else void,
+    ) void {
+        const addr: u8 = self.bus.cpu_read_u8(self.pc_consume(1)) +% self.reg.y;
+        if (dbg) {
+            const bin: u8 = self.bus.cpu_read_u8(self.reg.pc - 1);
+            self.make_binary(@intFromEnum(self.opcode), bin, null);
+            _ = std.fmt.bufPrint(
+                &self.assembly,
+                "{s} ${X:0>2},Y @ {X:0>2} = {X:0>2}",
+                .{ name, bin, addr, self.bus.cpu_read_u8(addr) },
+            ) catch {};
+        }
+        _ = instruction(self, addr);
+    }
+
+    fn absolute(
+        self: *Cpu,
+        comptime instruction: anytype,
+        name: if (dbg) *const [4:0]u8 else void,
+    ) void {
+        const addr: u16 = self.bus.cpu_read_u16(self.pc_consume(2));
+        if (dbg) {
+            self.make_binary(@intFromEnum(self.opcode), @truncate(addr & 0xFF), @truncate(addr >> 8));
+            _ = std.fmt.bufPrint(
+                &self.assembly,
+                "{s} ${X:0>4} = {X:0>2}",
+                .{ name, addr, self.bus.cpu_read_u8(addr) },
+            ) catch {};
+        }
+        _ = instruction(self, addr);
+    }
+
+    fn absolute_x(
+        self: *Cpu,
+        comptime instruction: anytype,
+        name: if (dbg) *const [4:0]u8 else void,
+    ) void {
+        const addr: u16 = self.bus.cpu_read_u16(self.pc_consume(2)) +% @as(u16, self.reg.x);
+        if (dbg) {
+            const bin: u16 = self.bus.cpu_read_u16(self.reg.pc - 2);
+            self.make_binary(@intFromEnum(self.opcode), @truncate(bin & 0xFF), @truncate(bin >> 8));
+            _ = std.fmt.bufPrint(
+                &self.assembly,
+                "{s} ${X:0>4},X @ {X:0>4} = {X:0>2}",
+                .{ name, bin, addr, self.bus.cpu_read_u8(addr) },
+            ) catch {};
+        }
+        _ = instruction(self, addr);
+    }
+
+    fn absolute_y(
+        self: *Cpu,
+        comptime instruction: anytype,
+        name: if (dbg) *const [4:0]u8 else void,
+    ) void {
+        const addr: u16 = self.bus.cpu_read_u16(self.pc_consume(2)) +% @as(u16, self.reg.y);
+        if (dbg) {
+            const bin: u16 = self.bus.cpu_read_u16(self.reg.pc - 2);
+            self.make_binary(@intFromEnum(self.opcode), @truncate(bin & 0xFF), @truncate(bin >> 8));
+            _ = std.fmt.bufPrint(
+                &self.assembly,
+                "{s} ${X:0>4},Y @ {X:0>4} = {X:0>2}",
+                .{ name, bin, addr, self.bus.cpu_read_u8(addr) },
+            ) catch {};
+        }
+        _ = instruction(self, addr);
+    }
+
+    fn indirect(
+        self: *Cpu,
+        comptime instruction: anytype,
+        name: if (dbg) *const [4:0]u8 else void,
+    ) void {
+        // indirect mode is bugged af
+        const ref: u16 = self.bus.cpu_read_u16(self.pc_consume(2));
+        var deref: u16 = undefined;
+        if (ref & 0x00FF == 0x00FF) {
+            const lo: u16 = self.bus.cpu_read_u8(ref);
+            const hi: u16 = self.bus.cpu_read_u8(ref & 0xFF00);
+            deref = (hi << 8) | lo;
+        } else {
+            deref = self.bus.cpu_read_u16(ref);
+        }
+        if (dbg) {
+            self.make_binary(@intFromEnum(self.opcode), @truncate(ref & 0xFF), @truncate(ref >> 8));
+            _ = std.fmt.bufPrint(&self.assembly, "{s} (${X:0>4}) = {X:0>4}", .{ name, ref, deref }) catch {};
+        }
+        _ = instruction(self, deref);
+    }
+
+    fn indirect_x(
+        self: *Cpu,
+        comptime instruction: anytype,
+        name: if (dbg) *const [4:0]u8 else void,
+    ) void {
         const ptr: u8 = self.bus.cpu_read_u8(self.pc_consume(1)) +% self.reg.x;
         const hi: u16 = @as(u16, self.bus.cpu_read_u8(ptr +% 1)) << 8;
         const lo: u16 = @as(u16, self.bus.cpu_read_u8(ptr));
-        return hi | lo;
+        const addr: u16 = hi | lo;
+        if (dbg) {
+            const bin: u8 = self.bus.cpu_read_u8(self.reg.pc - 1);
+            self.make_binary(@intFromEnum(self.opcode), bin, null);
+            _ = std.fmt.bufPrint(
+                &self.assembly,
+                "{s} (${X:0>2},X) @ {X:0>2} = {X:0>4} = {X:0>2}",
+                .{ name, bin, bin +% self.reg.x, addr, self.bus.cpu_read_u8(addr) },
+            ) catch {};
+        }
+        _ = instruction(self, addr);
     }
 
-    fn addr_indirect_y(self: *Cpu) u16 {
+    fn indirect_y(
+        self: *Cpu,
+        comptime instruction: anytype,
+        name: if (dbg) *const [4:0]u8 else void,
+    ) void {
         const ptr: u8 = self.bus.cpu_read_u8(self.pc_consume(1));
         const hi: u16 = @as(u16, self.bus.cpu_read_u8(ptr +% 1)) << 8;
         const lo: u16 = @as(u16, self.bus.cpu_read_u8(ptr));
-        return (hi | lo) +% @as(u16, self.reg.y);
+        const addr: u16 = (hi | lo) +% @as(u16, self.reg.y);
+        if (dbg) {
+            const bin: u16 = self.bus.cpu_read_u8(self.reg.pc - 1);
+            self.make_binary(@intFromEnum(self.opcode), @truncate(bin), null);
+            _ = std.fmt.bufPrint(
+                &self.assembly,
+                "{s} (${X:0>2}),Y = {X:0>4} @ {X:0>4} = {X:0>2}",
+                .{ name, bin, hi | lo, addr, self.bus.cpu_read_u8(addr) },
+            ) catch {};
+        }
+        _ = instruction(self, addr);
     }
 
     fn stack_pop_u8(self: *Cpu) u8 {
         self.reg.sp +%= 1;
-        return self.bus.cpu_read_u8(Registers.STACK_BASE + self.reg.sp);
+        return self.bus.cpu_read_u8(Registers.STACK_BASE +% self.reg.sp);
     }
 
     fn stack_push_u8(self: *Cpu, data: u8) void {
-        self.bus.cpu_write_u8(Registers.STACK_BASE + self.reg.sp, data);
+        self.bus.cpu_write_u8(Registers.STACK_BASE +% self.reg.sp, data);
         self.reg.sp -%= 1;
     }
 
@@ -863,183 +1106,185 @@ pub const Cpu = struct {
 
     fn nop(_: *Cpu) void {}
 
-    fn make_binary(self: *Cpu, a: u8, b: ?u8, c: ?u8) void {
-        std.debug.assert(dbg);
-        var b_str: [2]u8 = [_]u8{' '} ** 2;
-        if (b != null) {
-            _ = std.fmt.bufPrint(&b_str, "{X:0>2}", .{b.?}) catch {};
-        }
-        var c_str: [2]u8 = [_]u8{' '} ** 2;
-        if (c != null) {
-            _ = std.fmt.bufPrint(&c_str, "{X:0>2}", .{c.?}) catch {};
-        }
-        _ = std.fmt.bufPrint(&self.binary, "{X:0>2} {s} {s}", .{ a, b_str, c_str }) catch {};
+    fn tax(self: *Cpu) void {
+        self.reg.x = self.reg.a;
+        update_zero_negative_flags(self, self.reg.x);
     }
 
-    fn no_memory(
-        self: *Cpu,
-        comptime instruction: anytype,
-        name: if (dbg) *const [4:0]u8 else void,
-    ) void {
-        if (dbg) {
-            self.make_binary(@intFromEnum(self.opcode), null, null);
-            _ = std.fmt.bufPrint(&self.assembly, "{s}", .{name}) catch {};
-        }
-        _ = instruction(self);
+    fn tay(self: *Cpu) void {
+        self.reg.y = self.reg.a;
+        update_zero_negative_flags(self, self.reg.y);
     }
 
-    fn no_memory_a(
-        self: *Cpu,
-        comptime instruction: anytype,
-        name: if (dbg) *const [4:0]u8 else void,
-    ) void {
-        if (dbg) {
-            self.make_binary(@intFromEnum(self.opcode), null, null);
-            _ = std.fmt.bufPrint(&self.assembly, "{s} A", .{name}) catch {};
-        }
-        _ = instruction(self);
+    fn txa(self: *Cpu) void {
+        self.reg.a = self.reg.x;
+        self.update_zero_negative_flags(self.reg.a);
     }
 
-    fn immediate(
-        self: *Cpu,
-        comptime instruction: anytype,
-        name: if (dbg) *const [4:0]u8 else void,
-    ) void {
-        const addr: u16 = self.pc_consume(1);
-        if (dbg) {
-            const data: u8 = self.bus.cpu_read_u8(addr);
-            self.make_binary(@intFromEnum(self.opcode), data, null);
-            _ = std.fmt.bufPrint(&self.assembly, "{s} #${X:0>2}", .{ name, data }) catch {};
-        }
-        _ = instruction(self, addr);
+    fn tya(self: *Cpu) void {
+        self.reg.a = self.reg.y;
+        self.update_zero_negative_flags(self.reg.a);
     }
 
-    fn zero_page(
-        self: *Cpu,
-        comptime instruction: anytype,
-        name: if (dbg) *const [4:0]u8 else void,
-    ) void {
-        const addr: u8 = self.bus.cpu_read_u8(self.pc_consume(1));
-        if (dbg) {
-            self.make_binary(@intFromEnum(self.opcode), addr, null);
-            _ = std.fmt.bufPrint(
-                &self.assembly,
-                "{s} ${X:0>2} = {X:0>2}",
-                .{ name, addr, self.bus.cpu_read_u8(addr) },
-            ) catch {};
-        }
-        _ = instruction(self, addr);
+    fn inx(self: *Cpu) void {
+        self.reg.x +%= 1;
+        update_zero_negative_flags(self, self.reg.x);
     }
 
-    fn zero_page_x(
-        self: *Cpu,
-        comptime instruction: anytype,
-        name: if (dbg) *const [4:0]u8 else void,
-    ) void {
-        const addr: u8 = self.bus.cpu_read_u8(self.pc_consume(1)) +% self.reg.x;
-        if (dbg) {
-            const address: u8 = self.bus.cpu_read_u8(self.reg.pc - 1);
-            self.make_binary(@intFromEnum(self.opcode), address, null);
-            _ = std.fmt.bufPrint(
-                &self.assembly,
-                "{s} ${X:0>2},X @ {X:0>2} = {X:0>2}",
-                .{ name, address, addr, self.bus.cpu_read_u8(addr) },
-            ) catch {};
-        }
-        _ = instruction(self, addr);
+    fn iny(self: *Cpu) void {
+        self.reg.y +%= 1;
+        update_zero_negative_flags(self, self.reg.y);
     }
 
-    fn zero_page_y(
-        self: *Cpu,
-        comptime instruction: anytype,
-        name: if (dbg) *const [4:0]u8 else void,
-    ) void {
-        const addr: u8 = self.bus.cpu_read_u8(self.pc_consume(1)) +% self.reg.y;
-        if (dbg) {
-            const address: u8 = self.bus.cpu_read_u8(self.reg.pc - 1);
-            self.make_binary(@intFromEnum(self.opcode), address, null);
-            _ = std.fmt.bufPrint(
-                &self.assembly,
-                "{s} ${X:0>2},Y @ {X:0>2} = {X:0>2}",
-                .{ name, address, addr, self.bus.cpu_read_u8(addr) },
-            ) catch {};
-        }
-        _ = instruction(self, addr);
+    fn dex(self: *Cpu) void {
+        self.reg.x -%= 1;
+        self.update_zero_negative_flags(self.reg.x);
     }
 
-    fn absolute(
-        self: *Cpu,
-        comptime instruction: anytype,
-        name: if (dbg) *const [4:0]u8 else void,
-    ) void {
-        const addr: u16 = self.bus.cpu_read_u16(self.pc_consume(2));
-        if (dbg) {
-            self.make_binary(@intFromEnum(self.opcode), @truncate(addr & 0xFF), @truncate(addr >> 8));
-            _ = std.fmt.bufPrint(
-                &self.assembly,
-                "{s} ${X:0>4} = {X:0>2}",
-                .{ name, addr, self.bus.cpu_read_u8(addr) },
-            ) catch {};
-        }
-        _ = instruction(self, addr);
+    fn dey(self: *Cpu) void {
+        self.reg.y -%= 1;
+        self.update_zero_negative_flags(self.reg.y);
     }
 
-    fn absolute_x(
-        self: *Cpu,
-        comptime instruction: anytype,
-        name: if (dbg) *const [4:0]u8 else void,
-    ) void {
-        const addr: u16 = self.bus.cpu_read_u16(self.pc_consume(2)) +% @as(u16, self.reg.x);
-        if (dbg) {
-            self.make_binary(@intFromEnum(self.opcode), @truncate(addr & 0xFF), @truncate(addr >> 8));
-            const address: u16 = self.bus.cpu_read_u16(self.reg.pc - 2);
-            _ = std.fmt.bufPrint(
-                &self.assembly,
-                "{s} ${X:0>4},X @ {X:0>4} = {X:0>2}",
-                .{ name, address, addr, self.bus.cpu_read_u8(addr) },
-            ) catch {};
-        }
-        _ = instruction(self, addr);
+    fn tsx(self: *Cpu) void {
+        self.reg.x = self.reg.sp;
+        self.update_zero_negative_flags(self.reg.x);
     }
 
-    fn absolute_y(
-        self: *Cpu,
-        comptime instruction: anytype,
-        name: if (dbg) *const [4:0]u8 else void,
-    ) void {
-        const addr: u16 = self.bus.cpu_read_u16(self.pc_consume(2)) +% @as(u16, self.reg.y);
-        if (dbg) {
-            self.make_binary(@intFromEnum(self.opcode), @truncate(addr & 0xFF), @truncate(addr >> 8));
-            const address: u16 = self.bus.cpu_read_u16(self.reg.pc - 2);
-            _ = std.fmt.bufPrint(
-                &self.assembly,
-                "{s} ${X:0>4},Y @ {X:0>4} = {X:0>2}",
-                .{ name, address, addr, self.bus.cpu_read_u8(addr) },
-            ) catch {};
-        }
-        _ = instruction(self, addr);
+    fn txs(self: *Cpu) void {
+        self.reg.sp = self.reg.x;
     }
 
-    fn indirect(
-        self: *Cpu,
-        comptime instruction: anytype,
-        name: if (dbg) *const [4:0]u8 else void,
-    ) void {
-        // indirect mode is bugged af
-        const ref: u16 = self.bus.cpu_read_u16(self.pc_consume(2));
-        var deref: u16 = undefined;
-        if (ref & 0x00FF == 0x00FF) {
-            const lo: u16 = self.bus.cpu_read_u8(ref);
-            const hi: u16 = self.bus.cpu_read_u8(ref & 0xFF00);
-            deref = (hi << 8) | lo;
-        } else {
-            deref = self.bus.cpu_read_u16(ref);
+    fn pha(self: *Cpu) void {
+        self.stack_push_u8(self.reg.a);
+    }
+
+    fn pla(self: *Cpu) void {
+        self.reg.a = self.stack_pop_u8();
+        self.update_zero_negative_flags(self.reg.a);
+    }
+
+    fn jsr(self: *Cpu, addr: u16) void {
+        self.stack_push_u16(self.reg.pc +% 1);
+        self.reg.pc = addr;
+    }
+
+    fn rts(self: *Cpu) void {
+        self.reg.pc = self.stack_pop_u16() +% 1;
+    }
+
+    fn bcc(self: *Cpu) void {
+        self.branch_relative(!self.flags.carry);
+    }
+
+    fn bcs(self: *Cpu) void {
+        self.branch_relative(self.flags.carry);
+    }
+
+    fn beq(self: *Cpu) void {
+        self.branch_relative(self.flags.zero);
+    }
+
+    fn bmi(self: *Cpu) void {
+        self.branch_relative(self.flags.negative);
+    }
+
+    fn bne(self: *Cpu) void {
+        self.branch_relative(!self.flags.zero);
+    }
+
+    fn bpl(self: *Cpu) void {
+        self.branch_relative(!self.flags.negative);
+    }
+
+    fn bvc(self: *Cpu) void {
+        self.branch_relative(!self.flags.overflow);
+    }
+
+    fn bvs(self: *Cpu) void {
+        self.branch_relative(self.flags.overflow);
+    }
+
+    fn clc(self: *Cpu) void {
+        self.flags.carry = false;
+    }
+
+    fn cli(self: *Cpu) void {
+        self.flags.interrupt_disable = false;
+    }
+
+    fn clv(self: *Cpu) void {
+        self.flags.overflow = false;
+    }
+
+    fn sec(self: *Cpu) void {
+        self.flags.carry = true;
+    }
+
+    fn sed(self: *Cpu) void {
+        self.flags.decimal_mode = true;
+    }
+
+    fn cld(self: *Cpu) void {
+        self.flags.decimal_mode = false;
+    }
+
+    fn sei(self: *Cpu) void {
+        self.flags.interrupt_disable = true;
+    }
+
+    fn php(self: *Cpu) void {
+        var flags: Flags = self.flags;
+        flags.break1 = true;
+        flags.break2 = true;
+        self.stack_push_u8(@bitCast(flags));
+    }
+
+    fn plp(self: *Cpu) void {
+        self.flags = @bitCast(self.stack_pop_u8());
+        self.flags.break1 = false;
+        self.flags.break2 = true;
+    }
+
+    fn rti(self: *Cpu) void {
+        self.flags = @bitCast(self.stack_pop_u8());
+        self.flags.break1 = false;
+        self.flags.break2 = true;
+        self.reg.pc = self.stack_pop_u16();
+    }
+
+    fn alr(self: *Cpu, addr: u16) void {
+        self.reg.a &= self.bus.cpu_read_u8(addr);
+        self.update_zero_negative_flags(self.reg.a);
+        self.lsr_acc();
+    }
+
+    fn anc(self: *Cpu, addr: u16) void {
+        self.reg.a &= self.bus.cpu_read_u8(addr);
+        self.update_zero_negative_flags(self.reg.a);
+        self.flags.carry = self.flags.negative;
+    }
+
+    fn axs(self: *Cpu, addr: u16) void {
+        const data: u8 = self.bus.cpu_read_u8(addr);
+        const x_and_a: u8 = self.reg.x & self.reg.a;
+        const result: u8 = x_and_a -% data;
+        if (data <= x_and_a) {
+            self.flags.carry = true;
         }
-        if (dbg) {
-            self.make_binary(@intFromEnum(self.opcode), @truncate(ref & 0xFF), @truncate(ref >> 8));
-            _ = std.fmt.bufPrint(&self.assembly, "{s} (${X:0>4}) = {X:0>4}", .{ name, ref, deref }) catch {};
-        }
-        _ = instruction(self, deref);
+        self.update_zero_negative_flags(result);
+        self.reg.x = result;
+    }
+
+    fn arr(self: *Cpu, addr: u16) void {
+        const data: u8 = self.bus.cpu_read_u8(addr);
+        self.reg.a &= data;
+        self.ror_acc();
+        const bit_5: bool = self.reg.a & (1 << 5) == 1;
+        const bit_6: bool = self.reg.a & (1 << 6) == 1;
+        self.flags.carry = bit_6;
+        self.flags.overflow = bit_5 != bit_6;
+        self.update_zero_negative_flags(self.reg.a);
     }
 
     pub fn exec(self: *Cpu, trace: if (dbg) *[128]u8 else void) bool {
@@ -1127,7 +1372,7 @@ pub const Cpu = struct {
                 self.absolute_x(ror_addr, " ROR");
             },
             Op.AND_IX => {
-                self.op_and(self.addr_indirect_x());
+                self.indirect_x(op_and, " AND");
             },
             Op.AND_ZP => {
                 self.zero_page(op_and, " AND");
@@ -1139,7 +1384,7 @@ pub const Cpu = struct {
                 self.absolute(op_and, " AND");
             },
             Op.AND_IY => {
-                self.op_and(self.addr_indirect_y());
+                self.indirect_y(op_and, " AND");
             },
             Op.AND_ZPX => {
                 self.zero_page_x(op_and, " AND");
@@ -1169,10 +1414,10 @@ pub const Cpu = struct {
                 self.absolute_y(ora, " ORA");
             },
             Op.ORA_IX => {
-                self.ora(self.addr_indirect_x());
+                self.indirect_x(ora, " ORA");
             },
             Op.ORA_IY => {
-                self.ora(self.addr_indirect_y());
+                self.indirect_y(ora, " ORA");
             },
             Op.STA_ZP => {
                 self.zero_page(sta, " STA");
@@ -1190,10 +1435,10 @@ pub const Cpu = struct {
                 self.absolute_y(sta, " STA");
             },
             Op.STA_IX => {
-                self.sta(self.addr_indirect_x());
+                self.indirect_x(sta, " STA");
             },
             Op.STA_IY => {
-                self.sta(self.addr_indirect_y());
+                self.indirect_y(sta, " STA");
             },
             Op.LDA_I => {
                 self.immediate(lda, " LDA");
@@ -1214,10 +1459,10 @@ pub const Cpu = struct {
                 self.absolute_y(lda, " LDA");
             },
             Op.LDA_IX => {
-                self.lda(self.addr_indirect_x());
+                self.indirect_x(sta, " LDA");
             },
             Op.LDA_IY => {
-                self.lda(self.addr_indirect_y());
+                self.indirect_y(lda, " LDA");
             },
             Op.LDX_I => {
                 self.immediate(ldx, " LDX");
@@ -1268,7 +1513,7 @@ pub const Cpu = struct {
                 self.absolute(sty, " STY");
             },
             Op.ADC_IX => {
-                self.adc(self.addr_indirect_x());
+                self.indirect_x(adc, " ADC");
             },
             Op.ADC_ZP => {
                 self.zero_page(adc, " ADC");
@@ -1280,7 +1525,7 @@ pub const Cpu = struct {
                 self.absolute(adc, " ADC");
             },
             Op.ADC_IY => {
-                self.adc(self.addr_indirect_y());
+                self.indirect_y(adc, " ADC");
             },
             Op.ADC_ZPX => {
                 self.zero_page_x(adc, " ADC");
@@ -1295,7 +1540,7 @@ pub const Cpu = struct {
                 self.immediate(sbc, "*SBC");
             },
             Op.SBC_IX => {
-                self.sbc(self.addr_indirect_x());
+                self.indirect_x(sbc, " SBC");
             },
             Op.SBC_ZP => {
                 self.zero_page(sbc, " SBC");
@@ -1307,7 +1552,7 @@ pub const Cpu = struct {
                 self.absolute(sbc, " SBC");
             },
             Op.SBC_IY => {
-                self.sbc(self.addr_indirect_y());
+                self.indirect_y(sbc, " SBC");
             },
             Op.SBC_ZPX => {
                 self.zero_page_x(sbc, " SBC");
@@ -1319,36 +1564,28 @@ pub const Cpu = struct {
                 self.absolute_x(sbc, " SBC");
             },
             Op.TAX => {
-                self.reg.x = self.reg.a;
-                update_zero_negative_flags(self, self.reg.x);
+                self.no_memory(tax, " TAX");
             },
             Op.TAY => {
-                self.reg.y = self.reg.a;
-                update_zero_negative_flags(self, self.reg.y);
+                self.no_memory(tay, " TAY");
             },
             Op.TXA => {
-                self.reg.a = self.reg.x;
-                self.update_zero_negative_flags(self.reg.a);
+                self.no_memory(txa, " TXA");
             },
             Op.TYA => {
-                self.reg.a = self.reg.y;
-                self.update_zero_negative_flags(self.reg.a);
+                self.no_memory(tya, " TYA");
             },
             Op.INX => {
-                self.reg.x +%= 1;
-                update_zero_negative_flags(self, self.reg.x);
+                self.no_memory(inx, " INX");
             },
             Op.INY => {
-                self.reg.y +%= 1;
-                update_zero_negative_flags(self, self.reg.y);
+                self.no_memory(iny, " INY");
             },
             Op.DEX => {
-                self.reg.x -%= 1;
-                self.update_zero_negative_flags(self.reg.x);
+                self.no_memory(dex, " DEX");
             },
             Op.DEY => {
-                self.reg.y -%= 1;
-                self.update_zero_negative_flags(self.reg.y);
+                self.no_memory(dey, " DEY");
             },
             Op.INC_ZP => {
                 self.zero_page(inc, " INC");
@@ -1375,7 +1612,7 @@ pub const Cpu = struct {
                 self.absolute_x(dec, " DEC");
             },
             Op.CMP_IX => {
-                self.cmp(self.addr_indirect_x());
+                self.indirect_x(cmp, " CMP");
             },
             Op.CMP_ZP => {
                 self.zero_page(cmp, " CMP");
@@ -1387,7 +1624,7 @@ pub const Cpu = struct {
                 self.absolute(cmp, " CMP");
             },
             Op.CMP_IY => {
-                self.cmp(self.addr_indirect_y());
+                self.indirect_y(cmp, " CMP");
             },
             Op.CMP_ZPX => {
                 self.zero_page_x(cmp, " CMP");
@@ -1432,64 +1669,61 @@ pub const Cpu = struct {
                 self.absolute_y(eor, " EOR");
             },
             Op.EOR_IX => {
-                self.eor(self.addr_indirect_x());
+                self.indirect_x(eor, " EOR");
             },
             Op.EOR_IY => {
-                self.eor(self.addr_indirect_y());
+                self.indirect_y(eor, " EOR");
             },
             Op.EOR_ZPX => {
                 self.zero_page_x(eor, " EOR");
             },
             Op.TSX => {
-                self.reg.x = self.reg.sp;
-                self.update_zero_negative_flags(self.reg.x);
+                self.no_memory(tsx, " TSX");
             },
             Op.TXS => {
-                self.reg.sp = self.reg.x;
+                self.no_memory(txs, " TXS");
             },
             Op.PHA => {
-                self.stack_push_u8(self.reg.a);
+                self.no_memory(pha, " PHA");
             },
             Op.PLA => {
-                self.reg.a = self.stack_pop_u8();
-                self.update_zero_negative_flags(self.reg.a);
+                self.no_memory(pla, " PLA");
             },
             Op.JMP_A => {
-                self.absolute(jmp, " JMP");
+                self.long_jump(jmp, " JMP");
             },
             Op.JMP_I => {
                 self.indirect(jmp, " JMP");
             },
             Op.JSR => {
-                self.stack_push_u16(self.reg.pc +% 1);
-                self.reg.pc = self.bus.cpu_read_u16(self.reg.pc);
+                self.subroutine_jump(jsr, " JSR");
             },
             Op.RTS => {
-                self.reg.pc = self.stack_pop_u16() +% 1;
+                self.no_memory(rts, " RTS");
             },
             Op.BCC => {
-                self.branch_relative(!self.flags.carry);
+                self.local_jump(bcc, " BCC");
             },
             Op.BCS => {
-                self.branch_relative(self.flags.carry);
+                self.local_jump(bcs, " BCS");
             },
             Op.BEQ => {
-                self.branch_relative(self.flags.zero);
+                self.local_jump(beq, " BEQ");
             },
             Op.BMI => {
-                self.branch_relative(self.flags.negative);
+                self.local_jump(bmi, " BMI");
             },
             Op.BNE => {
-                self.branch_relative(!self.flags.zero);
+                self.local_jump(bne, " BNE");
             },
             Op.BPL => {
-                self.branch_relative(!self.flags.negative);
+                self.local_jump(bpl, " BPL");
             },
             Op.BVC => {
-                self.branch_relative(!self.flags.overflow);
+                self.local_jump(bvc, " BVC");
             },
             Op.BVS => {
-                self.branch_relative(self.flags.overflow);
+                self.local_jump(bvs, " BVS");
             },
             Op.BIT_ZP => {
                 self.zero_page(bit, " BIT");
@@ -1498,55 +1732,47 @@ pub const Cpu = struct {
                 self.absolute(bit, " BIT");
             },
             Op.CLC => {
-                self.flags.carry = false;
+                self.no_memory(clc, " CLC");
             },
             Op.CLI => {
-                self.flags.interrupt_disable = false;
+                self.no_memory(cli, " CLI");
             },
             Op.CLV => {
-                self.flags.overflow = false;
+                self.no_memory(clv, " CLV");
             },
             Op.SEC => {
-                self.flags.carry = true;
+                self.no_memory(sec, " SEC");
             },
             Op.SED => {
-                self.flags.decimal_mode = true;
+                self.no_memory(sed, " SED");
             },
             Op.CLD => {
-                self.flags.decimal_mode = false;
+                self.no_memory(cld, " CLD");
             },
             Op.SEI => {
-                self.flags.interrupt_disable = true;
+                self.no_memory(sei, " SEI");
             },
             Op.PHP => {
-                var flags: Flags = self.flags;
-                flags.break1 = true;
-                flags.break2 = true;
-                self.stack_push_u8(@bitCast(flags));
+                self.no_memory(php, " PHP");
             },
             Op.PLP => {
-                self.flags = @bitCast(self.stack_pop_u8());
-                self.flags.break1 = false;
-                self.flags.break2 = true;
+                self.no_memory(plp, " PLP");
             },
             Op.RTI => {
-                self.flags = @bitCast(self.stack_pop_u8());
-                self.flags.break1 = false;
-                self.flags.break2 = true;
-                self.reg.pc = self.stack_pop_u16();
+                self.no_memory(rti, " RTI");
             },
             Op.BRK => {
+                self.no_memory(nop, " BRK");
                 ret = false;
             },
             Op.NOP => {
                 self.no_memory(nop, " NOP");
             },
-            // unofficial
             Op.DCP_IX => {
-                self.dcp(self.addr_indirect_x());
+                self.indirect_x(dcp, "*DCP");
             },
             Op.DCP_IY => {
-                self.dcp(self.addr_indirect_y());
+                self.indirect_y(dcp, "*DCP");
             },
             Op.DCP_ZP => {
                 self.zero_page(dcp, "*DCP");
@@ -1570,10 +1796,10 @@ pub const Cpu = struct {
                 self.zero_page_x(rla, "*RLA");
             },
             Op.RLA_IX => {
-                self.rla(self.addr_indirect_x());
+                self.indirect_x(rla, "*RLA");
             },
             Op.RLA_IY => {
-                self.rla(self.addr_indirect_y());
+                self.indirect_y(rla, "*RLA");
             },
             Op.RLA_A => {
                 self.absolute(rla, "*RLA");
@@ -1591,10 +1817,10 @@ pub const Cpu = struct {
                 self.zero_page_x(slo, "*SLO");
             },
             Op.SLO_IX => {
-                self.slo(self.addr_indirect_x());
+                self.indirect_x(slo, "*SLO");
             },
             Op.SLO_IY => {
-                self.slo(self.addr_indirect_y());
+                self.indirect_y(slo, "*SLO");
             },
             Op.SLO_A => {
                 self.absolute(slo, "*SLO");
@@ -1612,10 +1838,10 @@ pub const Cpu = struct {
                 self.zero_page_x(sre, "*SRE");
             },
             Op.SRE_IX => {
-                self.sre(self.addr_indirect_x());
+                self.indirect_x(sre, "*SRE");
             },
             Op.SRE_IY => {
-                self.sre(self.addr_indirect_y());
+                self.indirect_y(sre, "*SRE");
             },
             Op.SRE_A => {
                 self.absolute(sre, "*SRE");
@@ -1633,10 +1859,10 @@ pub const Cpu = struct {
                 self.zero_page_x(rra, "*RRA");
             },
             Op.RRA_IX => {
-                self.rra(self.addr_indirect_x());
+                self.indirect_x(rra, "*RRA");
             },
             Op.RRA_IY => {
-                self.rra(self.addr_indirect_y());
+                self.indirect_y(rra, "*RRA");
             },
             Op.RRA_A => {
                 self.absolute(rra, "*RRA");
@@ -1654,10 +1880,10 @@ pub const Cpu = struct {
                 self.zero_page_x(isb, "*ISB");
             },
             Op.ISB_IX => {
-                self.isb(self.addr_indirect_x());
+                self.indirect_x(isb, "*ISB");
             },
             Op.ISB_IY => {
-                self.isb(self.addr_indirect_y());
+                self.indirect_y(isb, "*ISB");
             },
             Op.ISB_A => {
                 self.absolute(isb, "*ISB");
@@ -1675,10 +1901,10 @@ pub const Cpu = struct {
                 self.zero_page_y(lax, "*LAX");
             },
             Op.LAX_IX => {
-                self.lax(self.addr_indirect_x());
+                self.indirect_x(lax, "*LAX");
             },
             Op.LAX_IY => {
-                self.lax(self.addr_indirect_y());
+                self.indirect_y(lax, "*LAX");
             },
             Op.LAX_A => {
                 self.absolute(lax, "*LAX");
@@ -1693,40 +1919,22 @@ pub const Cpu = struct {
                 self.zero_page_y(sax, "*SAX");
             },
             Op.SAX_IX => {
-                self.sax(self.addr_indirect_x());
+                self.indirect_x(sax, "*SAX");
             },
             Op.SAX_A => {
                 self.absolute(sax, "*SAX");
             },
             Op.ALR => {
-                self.reg.a &= self.bus.cpu_read_u8(self.addr_immediate());
-                self.update_zero_negative_flags(self.reg.a);
-                self.lsr_acc();
+                self.immediate(alr, "*ALR");
             },
             Op.ANC0, Op.ANC1 => {
-                self.reg.a &= self.bus.cpu_read_u8(self.addr_immediate());
-                self.update_zero_negative_flags(self.reg.a);
-                self.flags.carry = self.flags.negative;
+                self.immediate(anc, "*ANC");
             },
             Op.AXS => {
-                const data: u8 = self.bus.cpu_read_u8(self.addr_immediate());
-                const x_and_a: u8 = self.reg.x & self.reg.a;
-                const result: u8 = x_and_a -% data;
-                if (data <= x_and_a) {
-                    self.flags.carry = true;
-                }
-                self.update_zero_negative_flags(result);
-                self.reg.x = result;
+                self.immediate(axs, "*AXS");
             },
             Op.ARR => {
-                const data: u8 = self.bus.cpu_read_u8(self.addr_immediate());
-                self.reg.a &= data;
-                self.ror_acc();
-                const bit_5: bool = self.reg.a & (1 << 5) == 1;
-                const bit_6: bool = self.reg.a & (1 << 6) == 1;
-                self.flags.carry = bit_6;
-                self.flags.overflow = bit_5 != bit_6;
-                self.update_zero_negative_flags(self.reg.a);
+                self.immediate(arr, "*ARR");
             },
             Op.NOP_1, Op.NOP_2, Op.NOP_3, Op.NOP_4, Op.NOP_5, Op.NOP_6, Op.NOP_7, Op.NOP_8, Op.NOP_9, Op.NOP_10, Op.NOP_11, Op.NOP_12, Op.NOP_13, Op.NOP_14, Op.NOP_15, Op.NOP_16, Op.NOP_17, Op.NOP_18 => {
                 self.no_memory(nop, "*NOP");
