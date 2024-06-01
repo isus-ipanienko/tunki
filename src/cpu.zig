@@ -556,11 +556,11 @@ const Flags = packed struct {
     pub fn init() Flags {
         return Flags{
             .carry = false,
-            .zero = true,
+            .zero = false,
             .interrupt_disable = true,
             .decimal_mode = false,
             .break1 = false,
-            .break2 = false,
+            .break2 = true,
             .overflow = false,
             .negative = false,
         };
@@ -912,7 +912,7 @@ pub const Cpu = struct {
         const sum: u16 = @as(u16, self.reg.a) +%
             @as(u16, val) +% @as(u16, @intFromBool(self.flags.carry));
         self.flags.carry = sum > 0x00FF;
-        self.flags.overflow = sum ^ (self.reg.a & val) & 0x80 != 0;
+        self.flags.overflow = (sum ^ self.reg.a) & (sum ^ val) & 0x80 != 0;
         self.reg.a = @truncate(sum);
         update_zero_negative_flags(self, self.reg.a);
     }
@@ -1081,17 +1081,16 @@ pub const Cpu = struct {
     }
 
     fn rra(self: *Cpu, addr: u16) void {
-        self.reg.a +%= self.ror_addr(addr);
-        self.update_zero_negative_flags(self.reg.a);
+        self.acc(self.ror_addr(addr));
     }
 
     fn isb(self: *Cpu, addr: u16) void {
-        self.reg.a -%= self.inc(addr);
-        self.update_zero_negative_flags(self.reg.a);
+        const val: i8 = @bitCast(self.inc(addr));
+        self.acc(@bitCast(-val -% 1));
     }
 
     fn lax(self: *Cpu, addr: u16) void {
-        self.reg.a = self.inc(addr);
+        self.reg.a = self.bus.cpu_read_u8(addr);
         self.update_zero_negative_flags(self.reg.a);
         self.reg.x = self.reg.a;
     }
@@ -1459,7 +1458,7 @@ pub const Cpu = struct {
                 self.absolute_y(lda, " LDA");
             },
             Op.LDA_IX => {
-                self.indirect_x(sta, " LDA");
+                self.indirect_x(lda, " LDA");
             },
             Op.LDA_IY => {
                 self.indirect_y(lda, " LDA");
@@ -1787,7 +1786,7 @@ pub const Cpu = struct {
                 self.absolute_y(dcp, "*DCP");
             },
             Op.DCP_AX => {
-                self.absolute_y(dcp, "*DCP");
+                self.absolute_x(dcp, "*DCP");
             },
             Op.RLA_ZP => {
                 self.zero_page(rla, "*RLA");
