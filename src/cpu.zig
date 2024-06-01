@@ -574,6 +574,7 @@ pub const Cpu = struct {
     bus: *Bus,
     binary: if (dbg) [8]u8 else void,
     assembly: if (dbg) [32]u8 else void,
+    opcode: if (dbg) Op else void,
 
     pub fn init(bus: *Bus) Cpu {
         return Cpu{
@@ -583,6 +584,7 @@ pub const Cpu = struct {
             .bus = bus,
             .binary = undefined,
             .assembly = undefined,
+            .opcode = undefined,
         };
     }
 
@@ -883,18 +885,6 @@ pub const Cpu = struct {
         self.reg.pc = addr;
     }
 
-    fn jmp_bugged(self: *Cpu, addr: u16) void {
-        var ref: u16 = undefined;
-        if (addr & 0x00FF == 0x00FF) {
-            const lo: u16 = self.bus.cpu_read_u8(addr);
-            const hi: u16 = self.bus.cpu_read_u8(addr & 0xFF00);
-            ref = (hi << 8) | lo;
-        } else {
-            ref = self.bus.cpu_read_u16(addr);
-        }
-        self.reg.pc = self.bus.cpu_read_u16(ref);
-    }
-
     fn make_binary(self: *Cpu, a: u8, b: ?u8, c: ?u8) void {
         std.debug.assert(dbg);
         var b_str: [2]u8 = [_]u8{' '} ** 2;
@@ -908,63 +898,101 @@ pub const Cpu = struct {
         _ = std.fmt.bufPrint(&self.binary, "{X:0>2} {s} {s}", .{ a, b_str, c_str }) catch {};
     }
 
-    fn make_assembly_immediate(self: *Cpu, name: *const [4:0]u8, data: u8) void {
-        std.debug.assert(dbg);
-        _ = std.fmt.bufPrint(&self.assembly, "{s} #${X:0>2}", .{ name, data }) catch {};
-    }
-
     fn immediate(
         self: *Cpu,
-        comptime instruction: fn (self: *Cpu, addr: u16) void,
-        opcode: Op,
+        comptime instruction: anytype,
         name: if (dbg) *const [4:0]u8 else void,
     ) void {
         const addr: u16 = self.addr_immediate();
         if (dbg) {
             const data: u8 = self.bus.cpu_read_u8(addr);
-            self.make_binary(@intFromEnum(opcode), data, null);
-            self.make_assembly_immediate(name, data);
+            self.make_binary(@intFromEnum(self.opcode), data, null);
+            _ = std.fmt.bufPrint(
+                &self.assembly,
+                "{s} #${X:0>2}",
+                .{ name, data },
+            ) catch {};
         }
         _ = instruction(self, addr);
-    }
-
-    fn make_assembly_zero_page(self: *Cpu, name: *const [4:0]u8, addr: u8, data: u8) void {
-        std.debug.assert(dbg);
-        _ = std.fmt.bufPrint(&self.assembly, "{s} ${X:0>2} = {X:0>2}", .{ name, addr, data }) catch {};
     }
 
     fn zero_page(
         self: *Cpu,
         comptime instruction: anytype,
-        opcode: Op,
         name: if (dbg) *const [4:0]u8 else void,
     ) void {
         const addr: u16 = self.addr_zero_page();
         if (dbg) {
             const address: u8 = self.bus.cpu_read_u8(self.reg.pc - 1);
-            self.make_binary(@intFromEnum(opcode), address, null);
-            self.make_assembly_zero_page(name, address, self.bus.cpu_read_u8(addr));
+            self.make_binary(@intFromEnum(self.opcode), address, null);
+            _ = std.fmt.bufPrint(
+                &self.assembly,
+                "{s} ${X:0>2} = {X:0>2}",
+                .{ name, address, self.bus.cpu_read_u8(addr) },
+            ) catch {};
         }
         _ = instruction(self, addr);
     }
 
-    fn make_assembly_absolute(self: *Cpu, name: *const [4:0]u8, data: u16) void {
-        std.debug.assert(dbg);
-        _ = std.fmt.bufPrint(&self.assembly, "{s} ${X:0>4}", .{ name, data }) catch {};
+    fn zero_page_x(
+        self: *Cpu,
+        comptime instruction: anytype,
+        name: if (dbg) *const [4:0]u8 else void,
+    ) void {
+        const addr: u16 = self.addr_zero_page_x();
+        if (dbg) {
+            const address: u8 = self.bus.cpu_read_u8(self.reg.pc - 1);
+            self.make_binary(@intFromEnum(self.opcode), address, null);
+            _ = std.fmt.bufPrint(
+                &self.assembly,
+                "{s} ${X:0>2},X @ {X:0>2} = {X:0>2}",
+                .{ name, address, addr, self.bus.cpu_read_u8(addr) },
+            ) catch {};
+        }
+        _ = instruction(self, addr);
     }
 
     fn absolute(
         self: *Cpu,
-        comptime instruction: fn (self: *Cpu, addr: u16) void,
-        opcode: Op,
+        comptime instruction: anytype,
         name: if (dbg) *const [4:0]u8 else void,
     ) void {
         const addr: u16 = self.addr_absolute();
         if (dbg) {
-            self.make_binary(@intFromEnum(opcode), @truncate(addr & 0xFF), @truncate(addr >> 8));
-            self.make_assembly_absolute(name, addr);
+            self.make_binary(@intFromEnum(self.opcode), @truncate(addr & 0xFF), @truncate(addr >> 8));
+            _ = std.fmt.bufPrint(
+                &self.assembly,
+                "{s} ${X:0>4} = {X:0>2}",
+                .{ name, addr, self.bus.cpu_read_u8(addr) },
+            ) catch {};
         }
         _ = instruction(self, addr);
+    }
+
+    fn indirect(
+        self: *Cpu,
+        comptime instruction: anytype,
+        name: if (dbg) *const [4:0]u8 else void,
+    ) void {
+        // indirect mode is bugged af
+        const ref: u16 = self.addr_absolute();
+        var deref: u16 = undefined;
+        if (ref & 0x00FF == 0x00FF) {
+            const lo: u16 = self.bus.cpu_read_u8(ref);
+            const hi: u16 = self.bus.cpu_read_u8(ref & 0xFF00);
+            deref = (hi << 8) | lo;
+        } else {
+            deref = self.bus.cpu_read_u16(ref);
+        }
+        if (dbg) {
+            self.make_binary(@intFromEnum(self.opcode), @truncate(ref & 0xFF), @truncate(ref >> 8));
+            _ = std.fmt.bufPrint(
+                &self.assembly,
+                "{s} (${X:0>4}) = {X:0>4}",
+                .{ name, ref, deref },
+            ) catch {};
+        }
+        _ = instruction(self, deref);
     }
 
     pub fn exec(self: *Cpu, trace: if (dbg) *[128]u8 else void) bool {
@@ -973,6 +1001,7 @@ pub const Cpu = struct {
         var ret: bool = true;
         var tmp: if (dbg) [25]u8 else void = undefined;
         if (dbg) {
+            self.opcode = opcode;
             @memset(trace, ' ');
             @memset(&self.binary, ' ');
             @memset(&self.assembly, ' ');
@@ -994,13 +1023,13 @@ pub const Cpu = struct {
                 self.asl_acc();
             },
             Op.ASL_ZP => {
-                self.zero_page(asl_addr, opcode, " ASL");
+                self.zero_page(asl_addr, " ASL");
             },
             Op.ASL_A => {
-                _ = self.asl_addr(self.addr_absolute());
+                self.absolute(asl_addr, " ASL");
             },
             Op.ASL_ZPX => {
-                _ = self.asl_addr(self.addr_zero_page_x());
+                self.zero_page_x(asl_addr, " ASL");
             },
             Op.ASL_AX => {
                 _ = self.asl_addr(self.addr_absolute_x());
@@ -1009,13 +1038,13 @@ pub const Cpu = struct {
                 self.lsr_acc();
             },
             Op.LSR_ZP => {
-                self.zero_page(lsr_addr, opcode, " LSR");
+                self.zero_page(lsr_addr, " LSR");
             },
             Op.LSR_ZPX => {
-                _ = self.lsr_addr(self.addr_zero_page_x());
+                self.zero_page_x(lsr_addr, " LSR");
             },
             Op.LSR_A => {
-                _ = self.lsr_addr(self.addr_absolute());
+                self.absolute(lsr_addr, " LSR");
             },
             Op.LSR_AX => {
                 _ = self.lsr_addr(self.addr_absolute_x());
@@ -1024,13 +1053,13 @@ pub const Cpu = struct {
                 self.rol_acc();
             },
             Op.ROL_ZP => {
-                self.zero_page(rol_addr, opcode, " ROL");
+                self.zero_page(rol_addr, " ROL");
             },
             Op.ROL_ZPX => {
-                _ = self.rol_addr(self.addr_zero_page_x());
+                self.zero_page_x(rol_addr, " ROL");
             },
             Op.ROL_A => {
-                _ = self.rol_addr(self.addr_absolute());
+                self.absolute(rol_addr, " ROL");
             },
             Op.ROL_AX => {
                 _ = self.rol_addr(self.addr_absolute_x());
@@ -1039,13 +1068,13 @@ pub const Cpu = struct {
                 self.ror_acc();
             },
             Op.ROR_ZP => {
-                self.zero_page(ror_addr, opcode, " ROR");
+                self.zero_page(ror_addr, " ROR");
             },
             Op.ROR_ZPX => {
-                _ = self.ror_addr(self.addr_zero_page_x());
+                self.zero_page_x(ror_addr, " ROR");
             },
             Op.ROR_A => {
-                _ = self.ror_addr(self.addr_absolute());
+                self.absolute(ror_addr, " ROR");
             },
             Op.ROR_AX => {
                 _ = self.ror_addr(self.addr_absolute_x());
@@ -1054,19 +1083,20 @@ pub const Cpu = struct {
                 self.op_and(self.addr_indirect_x());
             },
             Op.AND_ZP => {
-                self.zero_page(op_and, opcode, " AND");
+                self.zero_page(op_and, " AND");
             },
             Op.AND_I => {
-                self.immediate(op_and, opcode, " AND");
+                self.immediate(op_and, " AND");
             },
             Op.AND_A => {
+                self.absolute(op_and, " AND");
                 self.op_and(self.addr_absolute());
             },
             Op.AND_IY => {
                 self.op_and(self.addr_indirect_y());
             },
             Op.AND_ZPX => {
-                self.op_and(self.addr_zero_page_x());
+                self.zero_page_x(op_and, " AND");
             },
             Op.AND_AY => {
                 self.op_and(self.addr_absolute_y());
@@ -1075,16 +1105,16 @@ pub const Cpu = struct {
                 self.op_and(self.addr_absolute_x());
             },
             Op.ORA_I => {
-                self.immediate(ora, opcode, " ORA");
+                self.immediate(ora, " ORA");
             },
             Op.ORA_ZP => {
-                self.zero_page(ora, opcode, " ORA");
+                self.zero_page(ora, " ORA");
             },
             Op.ORA_ZPX => {
-                self.ora(self.addr_zero_page_x());
+                self.zero_page_x(ora, " ORA");
             },
             Op.ORA_A => {
-                self.ora(self.addr_absolute());
+                self.absolute(ora, " ORA");
             },
             Op.ORA_AX => {
                 self.ora(self.addr_absolute_x());
@@ -1099,13 +1129,13 @@ pub const Cpu = struct {
                 self.ora(self.addr_indirect_y());
             },
             Op.STA_ZP => {
-                self.zero_page(sta, opcode, " STA");
+                self.zero_page(sta, " STA");
             },
             Op.STA_ZPX => {
-                self.sta(self.addr_zero_page_x());
+                self.zero_page_x(sta, " STA");
             },
             Op.STA_A => {
-                self.sta(self.addr_absolute());
+                self.absolute(sta, " STA");
             },
             Op.STA_AX => {
                 self.sta(self.addr_absolute_x());
@@ -1120,16 +1150,16 @@ pub const Cpu = struct {
                 self.sta(self.addr_indirect_y());
             },
             Op.LDA_I => {
-                self.immediate(lda, opcode, " LDA");
+                self.immediate(lda, " LDA");
             },
             Op.LDA_ZP => {
-                self.zero_page(lda, opcode, " LDA");
+                self.zero_page(lda, " LDA");
             },
             Op.LDA_ZPX => {
-                self.lda(self.addr_zero_page_x());
+                self.zero_page_x(lda, " LDA");
             },
             Op.LDA_A => {
-                self.lda(self.addr_absolute());
+                self.absolute(lda, " LDA");
             },
             Op.LDA_AX => {
                 self.lda(self.addr_absolute_x());
@@ -1144,70 +1174,70 @@ pub const Cpu = struct {
                 self.lda(self.addr_indirect_y());
             },
             Op.LDX_I => {
-                self.immediate(ldx, opcode, " LDX");
+                self.immediate(ldx, " LDX");
             },
             Op.LDX_ZP => {
-                self.zero_page(ldx, opcode, " LDX");
+                self.zero_page(ldx, " LDX");
             },
             Op.LDX_ZPY => {
                 self.ldx(self.addr_zero_page_y());
             },
             Op.LDX_A => {
-                self.ldx(self.addr_absolute());
+                self.absolute(ldx, " LDX");
             },
             Op.LDX_AY => {
                 self.ldx(self.addr_absolute_y());
             },
             Op.LDY_I => {
-                self.immediate(ldy, opcode, " LDY");
+                self.immediate(ldy, " LDY");
             },
             Op.LDY_ZP => {
-                self.zero_page(ldy, opcode, " LDY");
+                self.zero_page(ldy, " LDY");
             },
             Op.LDY_ZPX => {
-                self.ldy(self.addr_zero_page_x());
+                self.zero_page_x(ldy, " LDY");
             },
             Op.LDY_A => {
-                self.ldy(self.addr_absolute());
+                self.absolute(ldy, " LDY");
             },
             Op.LDY_AX => {
                 self.ldy(self.addr_absolute_x());
             },
             Op.STX_ZP => {
-                self.zero_page(stx, opcode, " STX");
+                self.zero_page(stx, " STX");
             },
             Op.STX_ZPY => {
                 self.stx(self.addr_zero_page_y());
             },
             Op.STX_A => {
-                self.stx(self.addr_absolute());
+                self.absolute(stx, " STX");
             },
             Op.STY_ZP => {
-                self.zero_page(sty, opcode, " STY");
+                self.zero_page(sty, " STY");
             },
             Op.STY_ZPX => {
-                self.sty(self.addr_zero_page_x());
+                self.zero_page_x(sty, " STY");
             },
             Op.STY_A => {
-                self.sty(self.addr_absolute());
+                self.absolute(sty, " STY");
             },
             Op.ADC_IX => {
                 self.adc(self.addr_indirect_x());
             },
             Op.ADC_ZP => {
-                self.zero_page(adc, opcode, " ADC");
+                self.zero_page(adc, " ADC");
             },
             Op.ADC_I => {
-                self.immediate(adc, opcode, " ADC");
+                self.immediate(adc, " ADC");
             },
             Op.ADC_A => {
-                self.adc(self.addr_absolute());
+                self.absolute(adc, " ADC");
             },
             Op.ADC_IY => {
                 self.adc(self.addr_indirect_y());
             },
             Op.ADC_ZPX => {
-                self.adc(self.addr_zero_page_x());
+                self.zero_page_x(adc, " ADC");
             },
             Op.ADC_AY => {
                 self.adc(self.addr_absolute_y());
@@ -1216,25 +1246,25 @@ pub const Cpu = struct {
                 self.adc(self.addr_absolute_x());
             },
             Op.SBC_I_U => {
-                self.immediate(sbc, opcode, "*SBC");
+                self.immediate(sbc, "*SBC");
             },
             Op.SBC_IX => {
                 self.sbc(self.addr_indirect_x());
             },
             Op.SBC_ZP => {
-                self.zero_page(sbc, opcode, " SBC");
+                self.zero_page(sbc, " SBC");
             },
             Op.SBC_I => {
-                self.immediate(sbc, opcode, " SBC");
+                self.immediate(sbc, " SBC");
             },
             Op.SBC_A => {
-                self.sbc(self.addr_absolute());
+                self.absolute(sbc, " SBC");
             },
             Op.SBC_IY => {
                 self.sbc(self.addr_indirect_y());
             },
             Op.SBC_ZPX => {
-                self.sbc(self.addr_zero_page_x());
+                self.zero_page_x(sbc, " SBC");
             },
             Op.SBC_AY => {
                 self.sbc(self.addr_absolute_y());
@@ -1275,25 +1305,25 @@ pub const Cpu = struct {
                 self.update_zero_negative_flags(self.reg.y);
             },
             Op.INC_ZP => {
-                self.zero_page(inc, opcode, " INC");
+                self.zero_page(inc, " INC");
             },
             Op.INC_ZPX => {
-                _ = self.inc(self.addr_zero_page_x());
+                self.zero_page_x(inc, " INC");
             },
             Op.INC_A => {
-                _ = self.inc(self.addr_absolute());
+                self.absolute(inc, " INC");
             },
             Op.INC_AX => {
                 _ = self.inc(self.addr_absolute_x());
             },
             Op.DEC_ZP => {
-                self.zero_page(dec, opcode, " DEC");
+                self.zero_page(dec, " DEC");
             },
             Op.DEC_ZPX => {
-                self.dec(self.addr_zero_page_x());
+                self.zero_page_x(dec, " DEC");
             },
             Op.DEC_A => {
-                self.dec(self.addr_absolute());
+                self.absolute(dec, " DEC");
             },
             Op.DEC_AX => {
                 self.dec(self.addr_absolute_x());
@@ -1302,19 +1332,19 @@ pub const Cpu = struct {
                 self.cmp(self.addr_indirect_x());
             },
             Op.CMP_ZP => {
-                self.zero_page(cmp, opcode, " CMP");
+                self.zero_page(cmp, " CMP");
             },
             Op.CMP_I => {
-                self.immediate(cmp, opcode, " CMP");
+                self.immediate(cmp, " CMP");
             },
             Op.CMP_A => {
-                self.cmp(self.addr_absolute());
+                self.absolute(cmp, " CMP");
             },
             Op.CMP_IY => {
                 self.cmp(self.addr_indirect_y());
             },
             Op.CMP_ZPX => {
-                self.cmp(self.addr_zero_page_x());
+                self.zero_page_x(cmp, " CMP");
             },
             Op.CMP_AY => {
                 self.cmp(self.addr_absolute_y());
@@ -1323,31 +1353,31 @@ pub const Cpu = struct {
                 self.cmp(self.addr_absolute_x());
             },
             Op.CPX_I => {
-                self.immediate(cpx, opcode, " CPX");
+                self.immediate(cpx, " CPX");
             },
             Op.CPX_A => {
-                self.cpx(self.addr_absolute());
+                self.absolute(cpx, " CPX");
             },
             Op.CPX_ZP => {
-                self.zero_page(cpx, opcode, " CPX");
+                self.zero_page(cpx, " CPX");
             },
             Op.CPY_I => {
-                self.immediate(cpy, opcode, " CPY");
+                self.immediate(cpy, " CPY");
             },
             Op.CPY_A => {
-                self.cpy(self.addr_absolute());
+                self.absolute(cpy, " CPY");
             },
             Op.CPY_ZP => {
-                self.zero_page(cpy, opcode, " CPY");
+                self.zero_page(cpy, " CPY");
             },
             Op.EOR_ZP => {
-                self.zero_page(eor, opcode, " EOR");
+                self.zero_page(eor, " EOR");
             },
             Op.EOR_I => {
-                self.immediate(eor, opcode, " EOR");
+                self.immediate(eor, " EOR");
             },
             Op.EOR_A => {
-                self.eor(self.addr_absolute());
+                self.absolute(eor, " EOR");
             },
             Op.EOR_AX => {
                 self.eor(self.addr_absolute_x());
@@ -1362,7 +1392,7 @@ pub const Cpu = struct {
                 self.eor(self.addr_indirect_y());
             },
             Op.EOR_ZPX => {
-                self.eor(self.addr_zero_page_x());
+                self.zero_page_x(eor, " EOR");
             },
             Op.TSX => {
                 self.reg.x = self.reg.sp;
@@ -1379,10 +1409,10 @@ pub const Cpu = struct {
                 self.update_zero_negative_flags(self.reg.a);
             },
             Op.JMP_A => {
-                self.absolute(jmp, opcode, " JMP");
+                self.absolute(jmp, " JMP");
             },
             Op.JMP_I => {
-                self.immediate(jmp_bugged, opcode, " JMP");
+                self.indirect(jmp, " JMP");
             },
             Op.JSR => {
                 self.stack_push_u16(self.reg.pc +% 1);
@@ -1416,10 +1446,10 @@ pub const Cpu = struct {
                 self.branch_relative(self.flags.overflow);
             },
             Op.BIT_ZP => {
-                self.zero_page(bit, opcode, " BIT");
+                self.zero_page(bit, " BIT");
             },
             Op.BIT_A => {
-                self.bit(self.addr_absolute());
+                self.absolute(bit, " BIT");
             },
             Op.CLC => {
                 self.flags.carry = false;
@@ -1470,13 +1500,13 @@ pub const Cpu = struct {
                 self.dcp(self.addr_indirect_y());
             },
             Op.DCP_ZP => {
-                self.zero_page(dcp, opcode, "*DCP");
+                self.zero_page(dcp, "*DCP");
             },
             Op.DCP_ZPX => {
-                self.dcp(self.addr_zero_page_x());
+                self.zero_page_x(dcp, "*DCP");
             },
             Op.DCP_A => {
-                self.dcp(self.addr_absolute());
+                self.absolute(dcp, "*DCP");
             },
             Op.DCP_AY => {
                 self.dcp(self.addr_absolute_y());
@@ -1485,10 +1515,10 @@ pub const Cpu = struct {
                 self.dcp(self.addr_absolute_x());
             },
             Op.RLA_ZP => {
-                self.zero_page(rla, opcode, "*RLA");
+                self.zero_page(rla, "*RLA");
             },
             Op.RLA_ZPX => {
-                self.rla(self.addr_zero_page_x());
+                self.zero_page_x(rla, "*RLA");
             },
             Op.RLA_IX => {
                 self.rla(self.addr_indirect_x());
@@ -1497,7 +1527,7 @@ pub const Cpu = struct {
                 self.rla(self.addr_indirect_y());
             },
             Op.RLA_A => {
-                self.rla(self.addr_absolute());
+                self.absolute(rla, "*RLA");
             },
             Op.RLA_AX => {
                 self.rla(self.addr_absolute_x());
@@ -1506,10 +1536,10 @@ pub const Cpu = struct {
                 self.rla(self.addr_absolute_y());
             },
             Op.SLO_ZP => {
-                self.zero_page(slo, opcode, "*SLO");
+                self.zero_page(slo, "*SLO");
             },
             Op.SLO_ZPX => {
-                self.slo(self.addr_zero_page_x());
+                self.zero_page_x(slo, "*SLO");
             },
             Op.SLO_IX => {
                 self.slo(self.addr_indirect_x());
@@ -1518,7 +1548,7 @@ pub const Cpu = struct {
                 self.slo(self.addr_indirect_y());
             },
             Op.SLO_A => {
-                self.slo(self.addr_absolute());
+                self.absolute(slo, "*SLO");
             },
             Op.SLO_AX => {
                 self.slo(self.addr_absolute_x());
@@ -1527,10 +1557,10 @@ pub const Cpu = struct {
                 self.slo(self.addr_absolute_y());
             },
             Op.SRE_ZP => {
-                self.zero_page(sre, opcode, "*SRE");
+                self.zero_page(sre, "*SRE");
             },
             Op.SRE_ZPX => {
-                self.sre(self.addr_zero_page_x());
+                self.zero_page_x(sre, "*SRE");
             },
             Op.SRE_IX => {
                 self.sre(self.addr_indirect_x());
@@ -1539,7 +1569,7 @@ pub const Cpu = struct {
                 self.sre(self.addr_indirect_y());
             },
             Op.SRE_A => {
-                self.sre(self.addr_absolute());
+                self.absolute(sre, "*SRE");
             },
             Op.SRE_AX => {
                 self.sre(self.addr_absolute_x());
@@ -1548,10 +1578,10 @@ pub const Cpu = struct {
                 self.sre(self.addr_absolute_y());
             },
             Op.RRA_ZP => {
-                self.zero_page(rra, opcode, "*RRA");
+                self.zero_page(rra, "*RRA");
             },
             Op.RRA_ZPX => {
-                self.rra(self.addr_zero_page_x());
+                self.zero_page_x(rra, "*RRA");
             },
             Op.RRA_IX => {
                 self.rra(self.addr_indirect_x());
@@ -1560,7 +1590,7 @@ pub const Cpu = struct {
                 self.rra(self.addr_indirect_y());
             },
             Op.RRA_A => {
-                self.rra(self.addr_absolute());
+                self.absolute(rra, "*RRA");
             },
             Op.RRA_AY => {
                 self.rra(self.addr_absolute_y());
@@ -1569,10 +1599,10 @@ pub const Cpu = struct {
                 self.rra(self.addr_absolute_x());
             },
             Op.ISB_ZP => {
-                self.zero_page(isb, opcode, "*ISB");
+                self.zero_page(isb, "*ISB");
             },
             Op.ISB_ZPX => {
-                self.isb(self.addr_zero_page_x());
+                self.zero_page_x(isb, "*ISB");
             },
             Op.ISB_IX => {
                 self.isb(self.addr_indirect_x());
@@ -1581,7 +1611,7 @@ pub const Cpu = struct {
                 self.isb(self.addr_indirect_y());
             },
             Op.ISB_A => {
-                self.isb(self.addr_absolute());
+                self.absolute(isb, "*ISB");
             },
             Op.ISB_AY => {
                 self.isb(self.addr_absolute_y());
@@ -1590,7 +1620,7 @@ pub const Cpu = struct {
                 self.isb(self.addr_absolute_x());
             },
             Op.LAX_ZP => {
-                self.zero_page(lax, opcode, "*LAX");
+                self.zero_page(lax, "*LAX");
             },
             Op.LAX_ZPY => {
                 self.lax(self.addr_zero_page_y());
@@ -1602,13 +1632,13 @@ pub const Cpu = struct {
                 self.lax(self.addr_indirect_y());
             },
             Op.LAX_A => {
-                self.lax(self.addr_absolute());
+                self.absolute(lax, "*LAX");
             },
             Op.LAX_AY => {
                 self.lax(self.addr_absolute_y());
             },
             Op.SAX_ZP => {
-                self.zero_page(sax, opcode, "*SAX");
+                self.zero_page(sax, "*SAX");
             },
             Op.SAX_ZPY => {
                 self.sax(self.addr_zero_page_y());
@@ -1617,7 +1647,7 @@ pub const Cpu = struct {
                 self.sax(self.addr_indirect_x());
             },
             Op.SAX_A => {
-                self.sax(self.addr_absolute());
+                self.absolute(sax, "*SAX");
             },
             Op.ALR => {
                 self.reg.a &= self.bus.cpu_read_u8(self.addr_immediate());
