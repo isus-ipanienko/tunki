@@ -16,6 +16,10 @@ test "cpu" {
     std.debug.print("{s}\n", .{trace});
 }
 
-pub fn main() void {
-    return 0;
+pub fn main() !void {
+    var bus: Bus = try Bus.init("nestest.nes");
+    var cpu: Cpu = Cpu.init(&bus);
+    cpu.reset();
+    const trace: void = undefined;
+    while (cpu.exec(trace)) {}
 }

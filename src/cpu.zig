@@ -1088,7 +1088,6 @@ pub const Cpu = struct {
         self.reg = Registers.init();
         self.flags = Flags.init();
         self.reg.pc = self.bus.cpu_read_u16(0xFFFC);
-        self.reg.pc = 0xC000;
-        std.debug.print("0x{X}", .{self.reg.pc});
+        self.reg.pc = 0xC000; // force automated mode in nestest.nes
     }
 };
