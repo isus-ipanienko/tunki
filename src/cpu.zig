@@ -4,524 +4,6 @@ const dbg = builtin.mode == std.builtin.OptimizeMode.Debug;
 
 const Bus = @import("bus.zig").Bus;
 
-pub const Op = enum(u8) {
-    BRK = 0x00,
-    ORA_IX = 0x01,
-    NOP_7 = 0x02,
-    SLO_IX = 0x03,
-    NOP_ZP_0 = 0x04,
-    ORA_ZP = 0x05,
-    ASL_ZP = 0x06,
-    SLO_ZP = 0x07,
-    PHP = 0x08,
-    ORA_I = 0x09,
-    ASL = 0x0A,
-    ANC0 = 0x0B,
-    NOP_A = 0x0C,
-    ORA_A = 0x0D,
-    ASL_A = 0x0E,
-    SLO_A = 0x0F,
-    BPL = 0x10,
-    ORA_IY = 0x11,
-    NOP_8 = 0x12,
-    SLO_IY = 0x13,
-    NOP_ZPX_0 = 0x14,
-    ORA_ZPX = 0x15,
-    ASL_ZPX = 0x16,
-    SLO_ZPX = 0x17,
-    CLC = 0x18,
-    ORA_AY = 0x19,
-    NOP_1 = 0x1A,
-    SLO_AY = 0x1B,
-    NOP_AX_0 = 0x1C,
-    ORA_AX = 0x1D,
-    ASL_AX = 0x1E,
-    SLO_AX = 0x1F,
-    JSR = 0x20,
-    AND_IX = 0x21,
-    NOP_9 = 0x22,
-    RLA_IX = 0x23,
-    BIT_ZP = 0x24,
-    AND_ZP = 0x25,
-    ROL_ZP = 0x26,
-    RLA_ZP = 0x27,
-    PLP = 0x28,
-    AND_I = 0x29,
-    ROL = 0x2A,
-    ANC1 = 0x2B,
-    BIT_A = 0x2C,
-    AND_A = 0x2D,
-    ROL_A = 0x2E,
-    RLA_A = 0x2F,
-    BMI = 0x30,
-    AND_IY = 0x31,
-    NOP_10 = 0x32,
-    RLA_IY = 0x33,
-    NOP_ZPX_1 = 0x34,
-    AND_ZPX = 0x35,
-    ROL_ZPX = 0x36,
-    RLA_ZPX = 0x37,
-    SEC = 0x38,
-    AND_AY = 0x39,
-    NOP_2 = 0x3A,
-    RLA_AY = 0x3B,
-    NOP_AX_1 = 0x3C,
-    AND_AX = 0x3D,
-    ROL_AX = 0x3E,
-    RLA_AX = 0x3F,
-    RTI = 0x40,
-    EOR_IX = 0x41,
-    NOP_11 = 0x42,
-    SRE_IX = 0x43,
-    NOP_ZP_1 = 0x44,
-    EOR_ZP = 0x45,
-    LSR_ZP = 0x46,
-    SRE_ZP = 0x47,
-    PHA = 0x48,
-    EOR_I = 0x49,
-    LSR = 0x4A,
-    ALR = 0x4B,
-    JMP_A = 0x4C,
-    EOR_A = 0x4D,
-    LSR_A = 0x4E,
-    SRE_A = 0x4F,
-    BVC = 0x50,
-    EOR_IY = 0x51,
-    NOP_12 = 0x52,
-    SRE_IY = 0x53,
-    NOP_ZPX_2 = 0x54,
-    EOR_ZPX = 0x55,
-    LSR_ZPX = 0x56,
-    SRE_ZPX = 0x57,
-    CLI = 0x58,
-    EOR_AY = 0x59,
-    NOP_3 = 0x5A,
-    SRE_AY = 0x5B,
-    NOP_AX_2 = 0x5C,
-    EOR_AX = 0x5D,
-    LSR_AX = 0x5E,
-    SRE_AX = 0x5F,
-    RTS = 0x60,
-    ADC_IX = 0x61,
-    NOP_13 = 0x62,
-    RRA_IX = 0x63,
-    NOP_ZP_2 = 0x64,
-    ADC_ZP = 0x65,
-    ROR_ZP = 0x66,
-    RRA_ZP = 0x67,
-    PLA = 0x68,
-    ADC_I = 0x69,
-    ROR = 0x6A,
-    ARR = 0x6B,
-    JMP_I = 0x6C,
-    ADC_A = 0x6D,
-    ROR_A = 0x6E,
-    RRA_A = 0x6F,
-    BVS = 0x70,
-    ADC_IY = 0x71,
-    NOP_14 = 0x72,
-    RRA_IY = 0x73,
-    NOP_ZPX_3 = 0x74,
-    ADC_ZPX = 0x75,
-    ROR_ZPX = 0x76,
-    RRA_ZPX = 0x77,
-    SEI = 0x78,
-    ADC_AY = 0x79,
-    NOP_4 = 0x7A,
-    RRA_AY = 0x7B,
-    NOP_AX_3 = 0x7C,
-    ADC_AX = 0x7D,
-    ROR_AX = 0x7E,
-    RRA_AX = 0x7F,
-    SKB0 = 0x80,
-    STA_IX = 0x81,
-    SKB1 = 0x82,
-    SAX_IX = 0x83,
-    STY_ZP = 0x84,
-    STA_ZP = 0x85,
-    STX_ZP = 0x86,
-    SAX_ZP = 0x87,
-    DEY = 0x88,
-    SKB2 = 0x89,
-    TXA = 0x8A,
-    XAA = 0x8B,
-    STY_A = 0x8C,
-    STA_A = 0x8D,
-    STX_A = 0x8E,
-    SAX_A = 0x8F,
-    BCC = 0x90,
-    STA_IY = 0x91,
-    NOP_15 = 0x92,
-    AHX_IY = 0x93,
-    STY_ZPX = 0x94,
-    STA_ZPX = 0x95,
-    STX_ZPY = 0x96,
-    SAX_ZPY = 0x97,
-    TYA = 0x98,
-    STA_AY = 0x99,
-    TXS = 0x9A,
-    TAS = 0x9B,
-    SHY = 0x9C,
-    STA_AX = 0x9D,
-    SHX = 0x9E,
-    AHX_AY = 0x9F,
-    LDY_I = 0xA0,
-    LDA_IX = 0xA1,
-    LDX_I = 0xA2,
-    LAX_IX = 0xA3,
-    LDY_ZP = 0xA4,
-    LDA_ZP = 0xA5,
-    LDX_ZP = 0xA6,
-    LAX_ZP = 0xA7,
-    TAY = 0xA8,
-    LDA_I = 0xA9,
-    TAX = 0xAA,
-    LXA = 0xAB,
-    LDY_A = 0xAC,
-    LDA_A = 0xAD,
-    LDX_A = 0xAE,
-    LAX_A = 0xAF,
-    BCS = 0xB0,
-    LDA_IY = 0xB1,
-    NOP_16 = 0xB2,
-    LAX_IY = 0xB3,
-    LDY_ZPX = 0xB4,
-    LDA_ZPX = 0xB5,
-    LDX_ZPY = 0xB6,
-    LAX_ZPY = 0xB7,
-    CLV = 0xB8,
-    LDA_AY = 0xB9,
-    TSX = 0xBA,
-    LAS = 0xBB,
-    LDY_AX = 0xBC,
-    LDA_AX = 0xBD,
-    LDX_AY = 0xBE,
-    LAX_AY = 0xBF,
-    CPY_I = 0xC0,
-    CMP_IX = 0xC1,
-    SKB3 = 0xC2,
-    DCP_IX = 0xC3,
-    CPY_ZP = 0xC4,
-    CMP_ZP = 0xC5,
-    DEC_ZP = 0xC6,
-    DCP_ZP = 0xC7,
-    INY = 0xC8,
-    CMP_I = 0xC9,
-    DEX = 0xCA,
-    AXS = 0xCB,
-    CPY_A = 0xCC,
-    CMP_A = 0xCD,
-    DEC_A = 0xCE,
-    DCP_A = 0xCF,
-    BNE = 0xD0,
-    CMP_IY = 0xD1,
-    NOP_17 = 0xD2,
-    DCP_IY = 0xD3,
-    NOP_ZPX_4 = 0xD4,
-    CMP_ZPX = 0xD5,
-    DEC_ZPX = 0xD6,
-    DCP_ZPX = 0xD7,
-    CLD = 0xD8,
-    CMP_AY = 0xD9,
-    NOP_5 = 0xDA,
-    DCP_AY = 0xDB,
-    NOP_AX_4 = 0xDC,
-    CMP_AX = 0xDD,
-    DEC_AX = 0xDE,
-    DCP_AX = 0xDF,
-    CPX_I = 0xE0,
-    SBC_IX = 0xE1,
-    SKB4 = 0xE2,
-    ISB_IX = 0xE3,
-    CPX_ZP = 0xE4,
-    SBC_ZP = 0xE5,
-    INC_ZP = 0xE6,
-    ISB_ZP = 0xE7,
-    INX = 0xE8,
-    SBC_I = 0xE9,
-    NOP = 0xEA,
-    SBC_I_U = 0xEB,
-    CPX_A = 0xEC,
-    SBC_A = 0xED,
-    INC_A = 0xEE,
-    ISB_A = 0xEF,
-    BEQ = 0xF0,
-    SBC_IY = 0xF1,
-    NOP_18 = 0xF2,
-    ISB_IY = 0xF3,
-    NOP_ZPX_5 = 0xF4,
-    SBC_ZPX = 0xF5,
-    INC_ZPX = 0xF6,
-    ISB_ZPX = 0xF7,
-    SED = 0xF8,
-    SBC_AY = 0xF9,
-    NOP_6 = 0xFA,
-    ISB_AY = 0xFB,
-    NOP_AX_5 = 0xFC,
-    SBC_AX = 0xFD,
-    INC_AX = 0xFE,
-    ISB_AX = 0xFF,
-};
-
-const OpCycles = [_]u8{
-    7,
-    6,
-    2,
-    8,
-    3,
-    3,
-    5,
-    5,
-    3,
-    2,
-    2,
-    2,
-    4,
-    4,
-    6,
-    6,
-    2,
-    5,
-    2,
-    8,
-    4,
-    4,
-    6,
-    6,
-    2,
-    4,
-    2,
-    7,
-    4,
-    4,
-    7,
-    7,
-    6,
-    6,
-    2,
-    8,
-    3,
-    3,
-    5,
-    5,
-    4,
-    2,
-    2,
-    2,
-    4,
-    4,
-    6,
-    6,
-    2,
-    5,
-    2,
-    8,
-    4,
-    4,
-    6,
-    6,
-    2,
-    4,
-    2,
-    7,
-    4,
-    4,
-    7,
-    7,
-    6,
-    6,
-    2,
-    8,
-    3,
-    3,
-    5,
-    5,
-    3,
-    2,
-    2,
-    2,
-    3,
-    4,
-    6,
-    6,
-    2,
-    5,
-    2,
-    8,
-    4,
-    4,
-    6,
-    6,
-    2,
-    4,
-    2,
-    7,
-    4,
-    4,
-    7,
-    7,
-    6,
-    6,
-    2,
-    8,
-    3,
-    3,
-    5,
-    5,
-    4,
-    2,
-    2,
-    2,
-    5,
-    4,
-    6,
-    6,
-    2,
-    5,
-    2,
-    8,
-    4,
-    4,
-    6,
-    6,
-    2,
-    4,
-    2,
-    7,
-    4,
-    4,
-    7,
-    7,
-    2,
-    6,
-    2,
-    6,
-    3,
-    3,
-    3,
-    3,
-    2,
-    2,
-    2,
-    3,
-    4,
-    4,
-    4,
-    4,
-    2,
-    6,
-    2,
-    8,
-    4,
-    4,
-    4,
-    4,
-    2,
-    5,
-    2,
-    2,
-    4,
-    5,
-    4,
-    4,
-    2,
-    6,
-    2,
-    6,
-    3,
-    3,
-    3,
-    3,
-    2,
-    2,
-    2,
-    3,
-    4,
-    4,
-    4,
-    4,
-    2,
-    5,
-    2,
-    5,
-    4,
-    4,
-    4,
-    4,
-    2,
-    4,
-    2,
-    2,
-    4,
-    4,
-    4,
-    4,
-    2,
-    6,
-    2,
-    8,
-    3,
-    3,
-    5,
-    5,
-    2,
-    2,
-    2,
-    2,
-    4,
-    4,
-    6,
-    6,
-    2,
-    5,
-    2,
-    8,
-    4,
-    4,
-    6,
-    6,
-    2,
-    4,
-    2,
-    7,
-    4,
-    4,
-    7,
-    7,
-    2,
-    6,
-    2,
-    8,
-    3,
-    3,
-    5,
-    5,
-    2,
-    2,
-    2,
-    2,
-    4,
-    4,
-    6,
-    6,
-    2,
-    5,
-    2,
-    8,
-    4,
-    4,
-    6,
-    6,
-    2,
-    4,
-    2,
-    7,
-    4,
-    4,
-    7,
-    7,
-};
-
 const Registers = struct {
     const STACK_BASE: u16 = 0x0100;
     const STACK_RESET: u8 = 0xFD;
@@ -567,6 +49,13 @@ const Flags = packed struct {
     }
 };
 
+const OpCode = struct {
+    name: *const [4:0]u8,
+    instruction: *const anyopaque,
+    memory: *const anyopaque,
+    cycles: u8,
+};
+
 pub const Cpu = struct {
     reg: Registers,
     flags: Flags,
@@ -574,7 +63,7 @@ pub const Cpu = struct {
     bus: *Bus,
     binary: if (dbg) [8]u8 else void,
     assembly: if (dbg) [32]u8 else void,
-    opcode: if (dbg) Op else void,
+    opcode: if (dbg) u8 else void,
 
     pub fn init(bus: *Bus) Cpu {
         return Cpu{
@@ -609,191 +98,191 @@ pub const Cpu = struct {
 
     fn local_jump(
         self: *Cpu,
-        comptime instruction: anytype,
+        instruction: *const fn (*Cpu) void,
         name: if (dbg) *const [4:0]u8 else void,
     ) void {
         if (dbg) {
             const bin: u8 = self.bus.cpu_read_u8(self.reg.pc);
-            self.make_binary(@intFromEnum(self.opcode), bin, null);
+            self.make_binary(self.opcode, bin, null);
             const addr: u16 = @bitCast(@as(i16, @bitCast(self.reg.pc +% 1)) +% @as(i8, @bitCast(bin)));
             _ = std.fmt.bufPrint(&self.assembly, "{s} ${X:0>4}", .{ name, addr }) catch {};
         }
-        _ = instruction(self);
+        instruction(self);
     }
 
     fn long_jump(
         self: *Cpu,
-        comptime instruction: anytype,
+        instruction: *const fn (*Cpu, u16) void,
         name: if (dbg) *const [4:0]u8 else void,
     ) void {
         const addr: u16 = self.bus.cpu_read_u16(self.pc_consume(2));
         if (dbg) {
-            self.make_binary(@intFromEnum(self.opcode), @truncate(addr & 0xFF), @truncate(addr >> 8));
+            self.make_binary(self.opcode, @truncate(addr & 0xFF), @truncate(addr >> 8));
             _ = std.fmt.bufPrint(&self.assembly, "{s} ${X:0>4}", .{ name, addr }) catch {};
         }
-        _ = instruction(self, addr);
+        instruction(self, addr);
     }
 
     fn subroutine_jump(
         self: *Cpu,
-        comptime instruction: anytype,
+        instruction: *const fn (*Cpu, u16) void,
         name: if (dbg) *const [4:0]u8 else void,
     ) void {
         const addr: u16 = self.bus.cpu_read_u16(self.reg.pc);
         if (dbg) {
-            self.make_binary(@intFromEnum(self.opcode), @truncate(addr & 0xFF), @truncate(addr >> 8));
+            self.make_binary(self.opcode, @truncate(addr & 0xFF), @truncate(addr >> 8));
             _ = std.fmt.bufPrint(&self.assembly, "{s} ${X:0>4}", .{ name, addr }) catch {};
         }
-        _ = instruction(self, addr);
+        instruction(self, addr);
     }
 
     fn no_memory(
         self: *Cpu,
-        comptime instruction: anytype,
+        instruction: *const fn (*Cpu) void,
         name: if (dbg) *const [4:0]u8 else void,
     ) void {
         if (dbg) {
-            self.make_binary(@intFromEnum(self.opcode), null, null);
+            self.make_binary(self.opcode, null, null);
             _ = std.fmt.bufPrint(&self.assembly, "{s}", .{name}) catch {};
         }
-        _ = instruction(self);
+        instruction(self);
     }
 
     fn no_memory_a(
         self: *Cpu,
-        comptime instruction: anytype,
+        instruction: *const fn (*Cpu) void,
         name: if (dbg) *const [4:0]u8 else void,
     ) void {
         if (dbg) {
-            self.make_binary(@intFromEnum(self.opcode), null, null);
+            self.make_binary(self.opcode, null, null);
             _ = std.fmt.bufPrint(&self.assembly, "{s} A", .{name}) catch {};
         }
-        _ = instruction(self);
+        instruction(self);
     }
 
     fn immediate(
         self: *Cpu,
-        comptime instruction: anytype,
+        instruction: *const fn (*Cpu, u16) void,
         name: if (dbg) *const [4:0]u8 else void,
     ) void {
         const addr: u16 = self.pc_consume(1);
         if (dbg) {
             const bin: u8 = self.bus.cpu_read_u8(addr);
-            self.make_binary(@intFromEnum(self.opcode), bin, null);
+            self.make_binary(self.opcode, bin, null);
             _ = std.fmt.bufPrint(&self.assembly, "{s} #${X:0>2}", .{ name, bin }) catch {};
         }
-        _ = instruction(self, addr);
+        instruction(self, addr);
     }
 
     fn zero_page(
         self: *Cpu,
-        comptime instruction: anytype,
+        instruction: *const fn (*Cpu, u16) void,
         name: if (dbg) *const [4:0]u8 else void,
     ) void {
         const addr: u8 = self.bus.cpu_read_u8(self.pc_consume(1));
         if (dbg) {
-            self.make_binary(@intFromEnum(self.opcode), addr, null);
+            self.make_binary(self.opcode, addr, null);
             _ = std.fmt.bufPrint(
                 &self.assembly,
                 "{s} ${X:0>2} = {X:0>2}",
                 .{ name, addr, self.bus.cpu_read_u8(addr) },
             ) catch {};
         }
-        _ = instruction(self, addr);
+        instruction(self, addr);
     }
 
     fn zero_page_x(
         self: *Cpu,
-        comptime instruction: anytype,
+        instruction: *const fn (*Cpu, u16) void,
         name: if (dbg) *const [4:0]u8 else void,
     ) void {
         const addr: u8 = self.bus.cpu_read_u8(self.pc_consume(1)) +% self.reg.x;
         if (dbg) {
             const bin: u8 = self.bus.cpu_read_u8(self.reg.pc - 1);
-            self.make_binary(@intFromEnum(self.opcode), bin, null);
+            self.make_binary(self.opcode, bin, null);
             _ = std.fmt.bufPrint(
                 &self.assembly,
                 "{s} ${X:0>2},X @ {X:0>2} = {X:0>2}",
                 .{ name, bin, addr, self.bus.cpu_read_u8(addr) },
             ) catch {};
         }
-        _ = instruction(self, addr);
+        instruction(self, addr);
     }
 
     fn zero_page_y(
         self: *Cpu,
-        comptime instruction: anytype,
+        instruction: *const fn (*Cpu, u16) void,
         name: if (dbg) *const [4:0]u8 else void,
     ) void {
         const addr: u8 = self.bus.cpu_read_u8(self.pc_consume(1)) +% self.reg.y;
         if (dbg) {
             const bin: u8 = self.bus.cpu_read_u8(self.reg.pc - 1);
-            self.make_binary(@intFromEnum(self.opcode), bin, null);
+            self.make_binary(self.opcode, bin, null);
             _ = std.fmt.bufPrint(
                 &self.assembly,
                 "{s} ${X:0>2},Y @ {X:0>2} = {X:0>2}",
                 .{ name, bin, addr, self.bus.cpu_read_u8(addr) },
             ) catch {};
         }
-        _ = instruction(self, addr);
+        instruction(self, addr);
     }
 
     fn absolute(
         self: *Cpu,
-        comptime instruction: anytype,
+        instruction: *const fn (*Cpu, u16) void,
         name: if (dbg) *const [4:0]u8 else void,
     ) void {
         const addr: u16 = self.bus.cpu_read_u16(self.pc_consume(2));
         if (dbg) {
-            self.make_binary(@intFromEnum(self.opcode), @truncate(addr & 0xFF), @truncate(addr >> 8));
+            self.make_binary(self.opcode, @truncate(addr & 0xFF), @truncate(addr >> 8));
             _ = std.fmt.bufPrint(
                 &self.assembly,
                 "{s} ${X:0>4} = {X:0>2}",
                 .{ name, addr, self.bus.cpu_read_u8(addr) },
             ) catch {};
         }
-        _ = instruction(self, addr);
+        instruction(self, addr);
     }
 
     fn absolute_x(
         self: *Cpu,
-        comptime instruction: anytype,
+        instruction: *const fn (*Cpu, u16) void,
         name: if (dbg) *const [4:0]u8 else void,
     ) void {
         const addr: u16 = self.bus.cpu_read_u16(self.pc_consume(2)) +% @as(u16, self.reg.x);
         if (dbg) {
             const bin: u16 = self.bus.cpu_read_u16(self.reg.pc - 2);
-            self.make_binary(@intFromEnum(self.opcode), @truncate(bin & 0xFF), @truncate(bin >> 8));
+            self.make_binary(self.opcode, @truncate(bin & 0xFF), @truncate(bin >> 8));
             _ = std.fmt.bufPrint(
                 &self.assembly,
                 "{s} ${X:0>4},X @ {X:0>4} = {X:0>2}",
                 .{ name, bin, addr, self.bus.cpu_read_u8(addr) },
             ) catch {};
         }
-        _ = instruction(self, addr);
+        instruction(self, addr);
     }
 
     fn absolute_y(
         self: *Cpu,
-        comptime instruction: anytype,
+        instruction: *const fn (*Cpu, u16) void,
         name: if (dbg) *const [4:0]u8 else void,
     ) void {
         const addr: u16 = self.bus.cpu_read_u16(self.pc_consume(2)) +% @as(u16, self.reg.y);
         if (dbg) {
             const bin: u16 = self.bus.cpu_read_u16(self.reg.pc - 2);
-            self.make_binary(@intFromEnum(self.opcode), @truncate(bin & 0xFF), @truncate(bin >> 8));
+            self.make_binary(self.opcode, @truncate(bin & 0xFF), @truncate(bin >> 8));
             _ = std.fmt.bufPrint(
                 &self.assembly,
                 "{s} ${X:0>4},Y @ {X:0>4} = {X:0>2}",
                 .{ name, bin, addr, self.bus.cpu_read_u8(addr) },
             ) catch {};
         }
-        _ = instruction(self, addr);
+        instruction(self, addr);
     }
 
     fn indirect(
         self: *Cpu,
-        comptime instruction: anytype,
+        instruction: *const fn (*Cpu, u16) void,
         name: if (dbg) *const [4:0]u8 else void,
     ) void {
         // indirect mode is bugged af
@@ -807,15 +296,15 @@ pub const Cpu = struct {
             deref = self.bus.cpu_read_u16(ref);
         }
         if (dbg) {
-            self.make_binary(@intFromEnum(self.opcode), @truncate(ref & 0xFF), @truncate(ref >> 8));
+            self.make_binary(self.opcode, @truncate(ref & 0xFF), @truncate(ref >> 8));
             _ = std.fmt.bufPrint(&self.assembly, "{s} (${X:0>4}) = {X:0>4}", .{ name, ref, deref }) catch {};
         }
-        _ = instruction(self, deref);
+        instruction(self, deref);
     }
 
     fn indirect_x(
         self: *Cpu,
-        comptime instruction: anytype,
+        instruction: *const fn (*Cpu, u16) void,
         name: if (dbg) *const [4:0]u8 else void,
     ) void {
         const ptr: u8 = self.bus.cpu_read_u8(self.pc_consume(1)) +% self.reg.x;
@@ -824,19 +313,19 @@ pub const Cpu = struct {
         const addr: u16 = hi | lo;
         if (dbg) {
             const bin: u8 = self.bus.cpu_read_u8(self.reg.pc - 1);
-            self.make_binary(@intFromEnum(self.opcode), bin, null);
+            self.make_binary(self.opcode, bin, null);
             _ = std.fmt.bufPrint(
                 &self.assembly,
                 "{s} (${X:0>2},X) @ {X:0>2} = {X:0>4} = {X:0>2}",
                 .{ name, bin, bin +% self.reg.x, addr, self.bus.cpu_read_u8(addr) },
             ) catch {};
         }
-        _ = instruction(self, addr);
+        instruction(self, addr);
     }
 
     fn indirect_y(
         self: *Cpu,
-        comptime instruction: anytype,
+        instruction: *const fn (*Cpu, u16) void,
         name: if (dbg) *const [4:0]u8 else void,
     ) void {
         const ptr: u8 = self.bus.cpu_read_u8(self.pc_consume(1));
@@ -845,14 +334,14 @@ pub const Cpu = struct {
         const addr: u16 = (hi | lo) +% @as(u16, self.reg.y);
         if (dbg) {
             const bin: u16 = self.bus.cpu_read_u8(self.reg.pc - 1);
-            self.make_binary(@intFromEnum(self.opcode), @truncate(bin), null);
+            self.make_binary(self.opcode, @truncate(bin), null);
             _ = std.fmt.bufPrint(
                 &self.assembly,
                 "{s} (${X:0>2}),Y = {X:0>4} @ {X:0>4} = {X:0>2}",
                 .{ name, bin, hi | lo, addr, self.bus.cpu_read_u8(addr) },
             ) catch {};
         }
-        _ = instruction(self, addr);
+        instruction(self, addr);
     }
 
     fn stack_pop_u8(self: *Cpu) u8 {
@@ -1105,6 +594,14 @@ pub const Cpu = struct {
 
     fn nop(_: *Cpu) void {}
 
+    fn nop1(self: *Cpu) void {
+        _ = self.pc_consume(1);
+    }
+
+    fn nop2(self: *Cpu) void {
+        _ = self.pc_consume(2);
+    }
+
     fn tax(self: *Cpu) void {
         self.reg.x = self.reg.a;
         update_zero_negative_flags(self, self.reg.x);
@@ -1287,9 +784,268 @@ pub const Cpu = struct {
     }
 
     pub fn exec(self: *Cpu, trace: if (dbg) *[128]u8 else void) bool {
-        const pc_saved: u16 = self.reg.pc;
-        const opcode: Op = @enumFromInt(self.bus.cpu_read_u8(self.pc_consume(1)));
-        var ret: bool = true;
+        comptime var opcodes: [256]OpCode = undefined;
+        opcodes[0x0A] = .{ .name = " ASL", .instruction = asl_acc, .memory = no_memory_a, .cycles = 0 };
+        opcodes[0x06] = .{ .name = " ASL", .instruction = asl_addr, .memory = zero_page, .cycles = 0 };
+        opcodes[0x0E] = .{ .name = " ASL", .instruction = asl_addr, .memory = absolute, .cycles = 0 };
+        opcodes[0x16] = .{ .name = " ASL", .instruction = asl_addr, .memory = zero_page_x, .cycles = 0 };
+        opcodes[0x1E] = .{ .name = " ASL", .instruction = asl_addr, .memory = absolute_x, .cycles = 0 };
+        opcodes[0x4A] = .{ .name = " LSR", .instruction = lsr_acc, .memory = no_memory_a, .cycles = 0 };
+        opcodes[0x46] = .{ .name = " LSR", .instruction = lsr_addr, .memory = zero_page, .cycles = 0 };
+        opcodes[0x56] = .{ .name = " LSR", .instruction = lsr_addr, .memory = zero_page_x, .cycles = 0 };
+        opcodes[0x4E] = .{ .name = " LSR", .instruction = lsr_addr, .memory = absolute, .cycles = 0 };
+        opcodes[0x5E] = .{ .name = " LSR", .instruction = lsr_addr, .memory = absolute_x, .cycles = 0 };
+        opcodes[0x2A] = .{ .name = " ROL", .instruction = rol_acc, .memory = no_memory_a, .cycles = 0 };
+        opcodes[0x26] = .{ .name = " ROL", .instruction = rol_addr, .memory = zero_page, .cycles = 0 };
+        opcodes[0x36] = .{ .name = " ROL", .instruction = rol_addr, .memory = zero_page_x, .cycles = 0 };
+        opcodes[0x2E] = .{ .name = " ROL", .instruction = rol_addr, .memory = absolute, .cycles = 0 };
+        opcodes[0x3E] = .{ .name = " ROL", .instruction = rol_addr, .memory = absolute_x, .cycles = 0 };
+        opcodes[0x6A] = .{ .name = " ROR", .instruction = ror_acc, .memory = no_memory_a, .cycles = 0 };
+        opcodes[0x66] = .{ .name = " ROR", .instruction = ror_addr, .memory = zero_page, .cycles = 0 };
+        opcodes[0x76] = .{ .name = " ROR", .instruction = ror_addr, .memory = zero_page_x, .cycles = 0 };
+        opcodes[0x6E] = .{ .name = " ROR", .instruction = ror_addr, .memory = absolute, .cycles = 0 };
+        opcodes[0x7E] = .{ .name = " ROR", .instruction = ror_addr, .memory = absolute_x, .cycles = 0 };
+        opcodes[0x21] = .{ .name = " AND", .instruction = op_and, .memory = indirect_x, .cycles = 0 };
+        opcodes[0x25] = .{ .name = " AND", .instruction = op_and, .memory = zero_page, .cycles = 0 };
+        opcodes[0x29] = .{ .name = " AND", .instruction = op_and, .memory = immediate, .cycles = 0 };
+        opcodes[0x2D] = .{ .name = " AND", .instruction = op_and, .memory = absolute, .cycles = 0 };
+        opcodes[0x31] = .{ .name = " AND", .instruction = op_and, .memory = indirect_y, .cycles = 0 };
+        opcodes[0x35] = .{ .name = " AND", .instruction = op_and, .memory = zero_page_x, .cycles = 0 };
+        opcodes[0x39] = .{ .name = " AND", .instruction = op_and, .memory = absolute_y, .cycles = 0 };
+        opcodes[0x3D] = .{ .name = " AND", .instruction = op_and, .memory = absolute_x, .cycles = 0 };
+        opcodes[0x09] = .{ .name = " ORA", .instruction = ora, .memory = immediate, .cycles = 0 };
+        opcodes[0x05] = .{ .name = " ORA", .instruction = ora, .memory = zero_page, .cycles = 0 };
+        opcodes[0x15] = .{ .name = " ORA", .instruction = ora, .memory = zero_page_x, .cycles = 0 };
+        opcodes[0x0D] = .{ .name = " ORA", .instruction = ora, .memory = absolute, .cycles = 0 };
+        opcodes[0x1D] = .{ .name = " ORA", .instruction = ora, .memory = absolute_x, .cycles = 0 };
+        opcodes[0x19] = .{ .name = " ORA", .instruction = ora, .memory = absolute_y, .cycles = 0 };
+        opcodes[0x01] = .{ .name = " ORA", .instruction = ora, .memory = indirect_x, .cycles = 0 };
+        opcodes[0x11] = .{ .name = " ORA", .instruction = ora, .memory = indirect_y, .cycles = 0 };
+        opcodes[0x85] = .{ .name = " STA", .instruction = sta, .memory = zero_page, .cycles = 0 };
+        opcodes[0x95] = .{ .name = " STA", .instruction = sta, .memory = zero_page_x, .cycles = 0 };
+        opcodes[0x8D] = .{ .name = " STA", .instruction = sta, .memory = absolute, .cycles = 0 };
+        opcodes[0x9D] = .{ .name = " STA", .instruction = sta, .memory = absolute_x, .cycles = 0 };
+        opcodes[0x99] = .{ .name = " STA", .instruction = sta, .memory = absolute_y, .cycles = 0 };
+        opcodes[0x81] = .{ .name = " STA", .instruction = sta, .memory = indirect_x, .cycles = 0 };
+        opcodes[0x91] = .{ .name = " STA", .instruction = sta, .memory = indirect_y, .cycles = 0 };
+        opcodes[0xA9] = .{ .name = " LDA", .instruction = lda, .memory = immediate, .cycles = 0 };
+        opcodes[0xA5] = .{ .name = " LDA", .instruction = lda, .memory = zero_page, .cycles = 0 };
+        opcodes[0xB5] = .{ .name = " LDA", .instruction = lda, .memory = zero_page_x, .cycles = 0 };
+        opcodes[0xAD] = .{ .name = " LDA", .instruction = lda, .memory = absolute, .cycles = 0 };
+        opcodes[0xBD] = .{ .name = " LDA", .instruction = lda, .memory = absolute_x, .cycles = 0 };
+        opcodes[0xB9] = .{ .name = " LDA", .instruction = lda, .memory = absolute_y, .cycles = 0 };
+        opcodes[0xA1] = .{ .name = " LDA", .instruction = lda, .memory = indirect_x, .cycles = 0 };
+        opcodes[0xB1] = .{ .name = " LDA", .instruction = lda, .memory = indirect_y, .cycles = 0 };
+        opcodes[0xA2] = .{ .name = " LDX", .instruction = ldx, .memory = immediate, .cycles = 0 };
+        opcodes[0xA6] = .{ .name = " LDX", .instruction = ldx, .memory = zero_page, .cycles = 0 };
+        opcodes[0xB6] = .{ .name = " LDX", .instruction = ldx, .memory = zero_page_y, .cycles = 0 };
+        opcodes[0xAE] = .{ .name = " LDX", .instruction = ldx, .memory = absolute, .cycles = 0 };
+        opcodes[0xBE] = .{ .name = " LDX", .instruction = ldx, .memory = absolute_y, .cycles = 0 };
+        opcodes[0xA0] = .{ .name = " LDY", .instruction = ldy, .memory = immediate, .cycles = 0 };
+        opcodes[0xA4] = .{ .name = " LDY", .instruction = ldy, .memory = zero_page, .cycles = 0 };
+        opcodes[0xB4] = .{ .name = " LDY", .instruction = ldy, .memory = zero_page_x, .cycles = 0 };
+        opcodes[0xAC] = .{ .name = " LDY", .instruction = ldy, .memory = absolute, .cycles = 0 };
+        opcodes[0xBC] = .{ .name = " LDY", .instruction = ldy, .memory = absolute_x, .cycles = 0 };
+        opcodes[0x86] = .{ .name = " STX", .instruction = stx, .memory = zero_page, .cycles = 0 };
+        opcodes[0x96] = .{ .name = " STX", .instruction = stx, .memory = zero_page_y, .cycles = 0 };
+        opcodes[0x8E] = .{ .name = " STX", .instruction = stx, .memory = absolute, .cycles = 0 };
+        opcodes[0x84] = .{ .name = " STY", .instruction = sty, .memory = zero_page, .cycles = 0 };
+        opcodes[0x94] = .{ .name = " STY", .instruction = sty, .memory = zero_page_x, .cycles = 0 };
+        opcodes[0x8C] = .{ .name = " STY", .instruction = sty, .memory = absolute, .cycles = 0 };
+        opcodes[0x61] = .{ .name = " ADC", .instruction = adc, .memory = indirect_x, .cycles = 0 };
+        opcodes[0x65] = .{ .name = " ADC", .instruction = adc, .memory = zero_page, .cycles = 0 };
+        opcodes[0x69] = .{ .name = " ADC", .instruction = adc, .memory = immediate, .cycles = 0 };
+        opcodes[0x6D] = .{ .name = " ADC", .instruction = adc, .memory = absolute, .cycles = 0 };
+        opcodes[0x71] = .{ .name = " ADC", .instruction = adc, .memory = indirect_y, .cycles = 0 };
+        opcodes[0x75] = .{ .name = " ADC", .instruction = adc, .memory = zero_page_x, .cycles = 0 };
+        opcodes[0x79] = .{ .name = " ADC", .instruction = adc, .memory = absolute_y, .cycles = 0 };
+        opcodes[0x7D] = .{ .name = " ADC", .instruction = adc, .memory = absolute_x, .cycles = 0 };
+        opcodes[0xEB] = .{ .name = "*SBC", .instruction = sbc, .memory = immediate, .cycles = 0 };
+        opcodes[0xE1] = .{ .name = " SBC", .instruction = sbc, .memory = indirect_x, .cycles = 0 };
+        opcodes[0xE5] = .{ .name = " SBC", .instruction = sbc, .memory = zero_page, .cycles = 0 };
+        opcodes[0xE9] = .{ .name = " SBC", .instruction = sbc, .memory = immediate, .cycles = 0 };
+        opcodes[0xED] = .{ .name = " SBC", .instruction = sbc, .memory = absolute, .cycles = 0 };
+        opcodes[0xF1] = .{ .name = " SBC", .instruction = sbc, .memory = indirect_y, .cycles = 0 };
+        opcodes[0xF5] = .{ .name = " SBC", .instruction = sbc, .memory = zero_page_x, .cycles = 0 };
+        opcodes[0xF9] = .{ .name = " SBC", .instruction = sbc, .memory = absolute_y, .cycles = 0 };
+        opcodes[0xFD] = .{ .name = " SBC", .instruction = sbc, .memory = absolute_x, .cycles = 0 };
+        opcodes[0xAA] = .{ .name = " TAX", .instruction = tax, .memory = no_memory, .cycles = 0 };
+        opcodes[0xA8] = .{ .name = " TAY", .instruction = tay, .memory = no_memory, .cycles = 0 };
+        opcodes[0x8A] = .{ .name = " TXA", .instruction = txa, .memory = no_memory, .cycles = 0 };
+        opcodes[0x98] = .{ .name = " TYA", .instruction = tya, .memory = no_memory, .cycles = 0 };
+        opcodes[0xE8] = .{ .name = " INX", .instruction = inx, .memory = no_memory, .cycles = 0 };
+        opcodes[0xC8] = .{ .name = " INY", .instruction = iny, .memory = no_memory, .cycles = 0 };
+        opcodes[0xCA] = .{ .name = " DEX", .instruction = dex, .memory = no_memory, .cycles = 0 };
+        opcodes[0x88] = .{ .name = " DEY", .instruction = dey, .memory = no_memory, .cycles = 0 };
+        opcodes[0xE6] = .{ .name = " INC", .instruction = inc, .memory = zero_page, .cycles = 0 };
+        opcodes[0xF6] = .{ .name = " INC", .instruction = inc, .memory = zero_page_x, .cycles = 0 };
+        opcodes[0xEE] = .{ .name = " INC", .instruction = inc, .memory = absolute, .cycles = 0 };
+        opcodes[0xFE] = .{ .name = " INC", .instruction = inc, .memory = absolute_x, .cycles = 0 };
+        opcodes[0xC6] = .{ .name = " DEC", .instruction = dec, .memory = zero_page, .cycles = 0 };
+        opcodes[0xD6] = .{ .name = " DEC", .instruction = dec, .memory = zero_page_x, .cycles = 0 };
+        opcodes[0xCE] = .{ .name = " DEC", .instruction = dec, .memory = absolute, .cycles = 0 };
+        opcodes[0xDE] = .{ .name = " DEC", .instruction = dec, .memory = absolute_x, .cycles = 0 };
+        opcodes[0xC1] = .{ .name = " CMP", .instruction = cmp, .memory = indirect_x, .cycles = 0 };
+        opcodes[0xC5] = .{ .name = " CMP", .instruction = cmp, .memory = zero_page, .cycles = 0 };
+        opcodes[0xC9] = .{ .name = " CMP", .instruction = cmp, .memory = immediate, .cycles = 0 };
+        opcodes[0xCD] = .{ .name = " CMP", .instruction = cmp, .memory = absolute, .cycles = 0 };
+        opcodes[0xD1] = .{ .name = " CMP", .instruction = cmp, .memory = indirect_y, .cycles = 0 };
+        opcodes[0xD5] = .{ .name = " CMP", .instruction = cmp, .memory = zero_page_x, .cycles = 0 };
+        opcodes[0xD9] = .{ .name = " CMP", .instruction = cmp, .memory = absolute_y, .cycles = 0 };
+        opcodes[0xDD] = .{ .name = " CMP", .instruction = cmp, .memory = absolute_x, .cycles = 0 };
+        opcodes[0xE0] = .{ .name = " CPX", .instruction = cpx, .memory = immediate, .cycles = 0 };
+        opcodes[0xEC] = .{ .name = " CPX", .instruction = cpx, .memory = absolute, .cycles = 0 };
+        opcodes[0xE4] = .{ .name = " CPX", .instruction = cpx, .memory = zero_page, .cycles = 0 };
+        opcodes[0xC0] = .{ .name = " CPY", .instruction = cpy, .memory = immediate, .cycles = 0 };
+        opcodes[0xCC] = .{ .name = " CPY", .instruction = cpy, .memory = absolute, .cycles = 0 };
+        opcodes[0xC4] = .{ .name = " CPY", .instruction = cpy, .memory = zero_page, .cycles = 0 };
+        opcodes[0x45] = .{ .name = " EOR", .instruction = eor, .memory = zero_page, .cycles = 0 };
+        opcodes[0x49] = .{ .name = " EOR", .instruction = eor, .memory = immediate, .cycles = 0 };
+        opcodes[0x4D] = .{ .name = " EOR", .instruction = eor, .memory = absolute, .cycles = 0 };
+        opcodes[0x5D] = .{ .name = " EOR", .instruction = eor, .memory = absolute_x, .cycles = 0 };
+        opcodes[0x59] = .{ .name = " EOR", .instruction = eor, .memory = absolute_y, .cycles = 0 };
+        opcodes[0x41] = .{ .name = " EOR", .instruction = eor, .memory = indirect_x, .cycles = 0 };
+        opcodes[0x51] = .{ .name = " EOR", .instruction = eor, .memory = indirect_y, .cycles = 0 };
+        opcodes[0x55] = .{ .name = " EOR", .instruction = eor, .memory = zero_page_x, .cycles = 0 };
+        opcodes[0xBA] = .{ .name = " TSX", .instruction = tsx, .memory = no_memory, .cycles = 0 };
+        opcodes[0x9A] = .{ .name = " TXS", .instruction = txs, .memory = no_memory, .cycles = 0 };
+        opcodes[0x48] = .{ .name = " PHA", .instruction = pha, .memory = no_memory, .cycles = 0 };
+        opcodes[0x68] = .{ .name = " PLA", .instruction = pla, .memory = no_memory, .cycles = 0 };
+        opcodes[0x4C] = .{ .name = " JMP", .instruction = jmp, .memory = long_jump, .cycles = 0 };
+        opcodes[0x6C] = .{ .name = " JMP", .instruction = jmp, .memory = indirect, .cycles = 0 };
+        opcodes[0x20] = .{ .name = " JSR", .instruction = jsr, .memory = subroutine_jump, .cycles = 0 };
+        opcodes[0x60] = .{ .name = " RTS", .instruction = rts, .memory = no_memory, .cycles = 0 };
+        opcodes[0x90] = .{ .name = " BCC", .instruction = bcc, .memory = local_jump, .cycles = 0 };
+        opcodes[0xB0] = .{ .name = " BCS", .instruction = bcs, .memory = local_jump, .cycles = 0 };
+        opcodes[0xF0] = .{ .name = " BEQ", .instruction = beq, .memory = local_jump, .cycles = 0 };
+        opcodes[0x30] = .{ .name = " BMI", .instruction = bmi, .memory = local_jump, .cycles = 0 };
+        opcodes[0xD0] = .{ .name = " BNE", .instruction = bne, .memory = local_jump, .cycles = 0 };
+        opcodes[0x10] = .{ .name = " BPL", .instruction = bpl, .memory = local_jump, .cycles = 0 };
+        opcodes[0x50] = .{ .name = " BVC", .instruction = bvc, .memory = local_jump, .cycles = 0 };
+        opcodes[0x70] = .{ .name = " BVS", .instruction = bvs, .memory = local_jump, .cycles = 0 };
+        opcodes[0x24] = .{ .name = " BIT", .instruction = bit, .memory = zero_page, .cycles = 0 };
+        opcodes[0x2C] = .{ .name = " BIT", .instruction = bit, .memory = absolute, .cycles = 0 };
+        opcodes[0x18] = .{ .name = " CLC", .instruction = clc, .memory = no_memory, .cycles = 0 };
+        opcodes[0x58] = .{ .name = " CLI", .instruction = cli, .memory = no_memory, .cycles = 0 };
+        opcodes[0xB8] = .{ .name = " CLV", .instruction = clv, .memory = no_memory, .cycles = 0 };
+        opcodes[0x38] = .{ .name = " SEC", .instruction = sec, .memory = no_memory, .cycles = 0 };
+        opcodes[0xF8] = .{ .name = " SED", .instruction = sed, .memory = no_memory, .cycles = 0 };
+        opcodes[0xD8] = .{ .name = " CLD", .instruction = cld, .memory = no_memory, .cycles = 0 };
+        opcodes[0x78] = .{ .name = " SEI", .instruction = sei, .memory = no_memory, .cycles = 0 };
+        opcodes[0x08] = .{ .name = " PHP", .instruction = php, .memory = no_memory, .cycles = 0 };
+        opcodes[0x28] = .{ .name = " PLP", .instruction = plp, .memory = no_memory, .cycles = 0 };
+        opcodes[0x40] = .{ .name = " RTI", .instruction = rti, .memory = no_memory, .cycles = 0 };
+        opcodes[0x00] = .{ .name = " BRK", .instruction = nop, .memory = no_memory, .cycles = 0 };
+        opcodes[0xEA] = .{ .name = " NOP", .instruction = nop, .memory = no_memory, .cycles = 0 };
+        opcodes[0xC3] = .{ .name = "*DCP", .instruction = dcp, .memory = indirect_x, .cycles = 0 };
+        opcodes[0xD3] = .{ .name = "*DCP", .instruction = dcp, .memory = indirect_y, .cycles = 0 };
+        opcodes[0xC7] = .{ .name = "*DCP", .instruction = dcp, .memory = zero_page, .cycles = 0 };
+        opcodes[0xD7] = .{ .name = "*DCP", .instruction = dcp, .memory = zero_page_x, .cycles = 0 };
+        opcodes[0xCF] = .{ .name = "*DCP", .instruction = dcp, .memory = absolute, .cycles = 0 };
+        opcodes[0xDB] = .{ .name = "*DCP", .instruction = dcp, .memory = absolute_y, .cycles = 0 };
+        opcodes[0xDF] = .{ .name = "*DCP", .instruction = dcp, .memory = absolute_x, .cycles = 0 };
+        opcodes[0x27] = .{ .name = "*RLA", .instruction = rla, .memory = zero_page, .cycles = 0 };
+        opcodes[0x37] = .{ .name = "*RLA", .instruction = rla, .memory = zero_page_x, .cycles = 0 };
+        opcodes[0x23] = .{ .name = "*RLA", .instruction = rla, .memory = indirect_x, .cycles = 0 };
+        opcodes[0x33] = .{ .name = "*RLA", .instruction = rla, .memory = indirect_y, .cycles = 0 };
+        opcodes[0x2F] = .{ .name = "*RLA", .instruction = rla, .memory = absolute, .cycles = 0 };
+        opcodes[0x3F] = .{ .name = "*RLA", .instruction = rla, .memory = absolute_x, .cycles = 0 };
+        opcodes[0x3B] = .{ .name = "*RLA", .instruction = rla, .memory = absolute_y, .cycles = 0 };
+        opcodes[0x07] = .{ .name = "*SLO", .instruction = slo, .memory = zero_page, .cycles = 0 };
+        opcodes[0x17] = .{ .name = "*SLO", .instruction = slo, .memory = zero_page_x, .cycles = 0 };
+        opcodes[0x03] = .{ .name = "*SLO", .instruction = slo, .memory = indirect_x, .cycles = 0 };
+        opcodes[0x13] = .{ .name = "*SLO", .instruction = slo, .memory = indirect_y, .cycles = 0 };
+        opcodes[0x0F] = .{ .name = "*SLO", .instruction = slo, .memory = absolute, .cycles = 0 };
+        opcodes[0x1F] = .{ .name = "*SLO", .instruction = slo, .memory = absolute_x, .cycles = 0 };
+        opcodes[0x1B] = .{ .name = "*SLO", .instruction = slo, .memory = absolute_y, .cycles = 0 };
+        opcodes[0x47] = .{ .name = "*SRE", .instruction = sre, .memory = zero_page, .cycles = 0 };
+        opcodes[0x57] = .{ .name = "*SRE", .instruction = sre, .memory = zero_page_x, .cycles = 0 };
+        opcodes[0x43] = .{ .name = "*SRE", .instruction = sre, .memory = indirect_x, .cycles = 0 };
+        opcodes[0x53] = .{ .name = "*SRE", .instruction = sre, .memory = indirect_y, .cycles = 0 };
+        opcodes[0x4F] = .{ .name = "*SRE", .instruction = sre, .memory = absolute, .cycles = 0 };
+        opcodes[0x5F] = .{ .name = "*SRE", .instruction = sre, .memory = absolute_x, .cycles = 0 };
+        opcodes[0x5B] = .{ .name = "*SRE", .instruction = sre, .memory = absolute_y, .cycles = 0 };
+        opcodes[0x67] = .{ .name = "*RRA", .instruction = rra, .memory = zero_page, .cycles = 0 };
+        opcodes[0x77] = .{ .name = "*RRA", .instruction = rra, .memory = zero_page_x, .cycles = 0 };
+        opcodes[0x63] = .{ .name = "*RRA", .instruction = rra, .memory = indirect_x, .cycles = 0 };
+        opcodes[0x73] = .{ .name = "*RRA", .instruction = rra, .memory = indirect_y, .cycles = 0 };
+        opcodes[0x6F] = .{ .name = "*RRA", .instruction = rra, .memory = absolute, .cycles = 0 };
+        opcodes[0x7B] = .{ .name = "*RRA", .instruction = rra, .memory = absolute_y, .cycles = 0 };
+        opcodes[0x7F] = .{ .name = "*RRA", .instruction = rra, .memory = absolute_x, .cycles = 0 };
+        opcodes[0xE7] = .{ .name = "*ISB", .instruction = isb, .memory = zero_page, .cycles = 0 };
+        opcodes[0xF7] = .{ .name = "*ISB", .instruction = isb, .memory = zero_page_x, .cycles = 0 };
+        opcodes[0xE3] = .{ .name = "*ISB", .instruction = isb, .memory = indirect_x, .cycles = 0 };
+        opcodes[0xF3] = .{ .name = "*ISB", .instruction = isb, .memory = indirect_y, .cycles = 0 };
+        opcodes[0xEF] = .{ .name = "*ISB", .instruction = isb, .memory = absolute, .cycles = 0 };
+        opcodes[0xFB] = .{ .name = "*ISB", .instruction = isb, .memory = absolute_y, .cycles = 0 };
+        opcodes[0xFF] = .{ .name = "*ISB", .instruction = isb, .memory = absolute_x, .cycles = 0 };
+        opcodes[0xA7] = .{ .name = "*LAX", .instruction = lax, .memory = zero_page, .cycles = 0 };
+        opcodes[0xB7] = .{ .name = "*LAX", .instruction = lax, .memory = zero_page_y, .cycles = 0 };
+        opcodes[0xA3] = .{ .name = "*LAX", .instruction = lax, .memory = indirect_x, .cycles = 0 };
+        opcodes[0xB3] = .{ .name = "*LAX", .instruction = lax, .memory = indirect_y, .cycles = 0 };
+        opcodes[0xAF] = .{ .name = "*LAX", .instruction = lax, .memory = absolute, .cycles = 0 };
+        opcodes[0xBF] = .{ .name = "*LAX", .instruction = lax, .memory = absolute_y, .cycles = 0 };
+        opcodes[0x87] = .{ .name = "*SAX", .instruction = sax, .memory = zero_page, .cycles = 0 };
+        opcodes[0x97] = .{ .name = "*SAX", .instruction = sax, .memory = zero_page_y, .cycles = 0 };
+        opcodes[0x83] = .{ .name = "*SAX", .instruction = sax, .memory = indirect_x, .cycles = 0 };
+        opcodes[0x8F] = .{ .name = "*SAX", .instruction = sax, .memory = absolute, .cycles = 0 };
+        opcodes[0x4B] = .{ .name = "*ALR", .instruction = alr, .memory = immediate, .cycles = 0 };
+        opcodes[0x0B] = .{ .name = "*ANC", .instruction = anc, .memory = immediate, .cycles = 0 };
+        opcodes[0x2B] = .{ .name = "*ANC", .instruction = anc, .memory = immediate, .cycles = 0 };
+        opcodes[0xCB] = .{ .name = "*AXS", .instruction = axs, .memory = immediate, .cycles = 0 };
+        opcodes[0x6B] = .{ .name = "*ARR", .instruction = arr, .memory = immediate, .cycles = 0 };
+        opcodes[0x02] = .{ .name = "*NOP", .instruction = nop, .memory = no_memory, .cycles = 0 };
+        opcodes[0x12] = .{ .name = "*NOP", .instruction = nop, .memory = no_memory, .cycles = 0 };
+        opcodes[0x22] = .{ .name = "*NOP", .instruction = nop, .memory = no_memory, .cycles = 0 };
+        opcodes[0x32] = .{ .name = "*NOP", .instruction = nop, .memory = no_memory, .cycles = 0 };
+        opcodes[0x42] = .{ .name = "*NOP", .instruction = nop, .memory = no_memory, .cycles = 0 };
+        opcodes[0x52] = .{ .name = "*NOP", .instruction = nop, .memory = no_memory, .cycles = 0 };
+        opcodes[0x62] = .{ .name = "*NOP", .instruction = nop, .memory = no_memory, .cycles = 0 };
+        opcodes[0x72] = .{ .name = "*NOP", .instruction = nop, .memory = no_memory, .cycles = 0 };
+        opcodes[0x92] = .{ .name = "*NOP", .instruction = nop, .memory = no_memory, .cycles = 0 };
+        opcodes[0xB2] = .{ .name = "*NOP", .instruction = nop, .memory = no_memory, .cycles = 0 };
+        opcodes[0xD2] = .{ .name = "*NOP", .instruction = nop, .memory = no_memory, .cycles = 0 };
+        opcodes[0xF2] = .{ .name = "*NOP", .instruction = nop, .memory = no_memory, .cycles = 0 };
+        opcodes[0x1A] = .{ .name = "*NOP", .instruction = nop, .memory = no_memory, .cycles = 0 };
+        opcodes[0x3A] = .{ .name = "*NOP", .instruction = nop, .memory = no_memory, .cycles = 0 };
+        opcodes[0x5A] = .{ .name = "*NOP", .instruction = nop, .memory = no_memory, .cycles = 0 };
+        opcodes[0x7A] = .{ .name = "*NOP", .instruction = nop, .memory = no_memory, .cycles = 0 };
+        opcodes[0xDA] = .{ .name = "*NOP", .instruction = nop, .memory = no_memory, .cycles = 0 };
+        opcodes[0xFA] = .{ .name = "*NOP", .instruction = nop, .memory = no_memory, .cycles = 0 };
+        opcodes[0x04] = .{ .name = "*NOP", .instruction = nop1, .memory = no_memory, .cycles = 0 };
+        opcodes[0x44] = .{ .name = "*NOP", .instruction = nop1, .memory = no_memory, .cycles = 0 };
+        opcodes[0x64] = .{ .name = "*NOP", .instruction = nop1, .memory = no_memory, .cycles = 0 };
+        opcodes[0x14] = .{ .name = "*NOP", .instruction = nop1, .memory = no_memory, .cycles = 0 };
+        opcodes[0x34] = .{ .name = "*NOP", .instruction = nop1, .memory = no_memory, .cycles = 0 };
+        opcodes[0x54] = .{ .name = "*NOP", .instruction = nop1, .memory = no_memory, .cycles = 0 };
+        opcodes[0x74] = .{ .name = "*NOP", .instruction = nop1, .memory = no_memory, .cycles = 0 };
+        opcodes[0xD4] = .{ .name = "*NOP", .instruction = nop1, .memory = no_memory, .cycles = 0 };
+        opcodes[0xF4] = .{ .name = "*NOP", .instruction = nop1, .memory = no_memory, .cycles = 0 };
+        opcodes[0x80] = .{ .name = "*NOP", .instruction = nop1, .memory = no_memory, .cycles = 0 };
+        opcodes[0x82] = .{ .name = "*NOP", .instruction = nop1, .memory = no_memory, .cycles = 0 };
+        opcodes[0x89] = .{ .name = "*NOP", .instruction = nop1, .memory = no_memory, .cycles = 0 };
+        opcodes[0xC2] = .{ .name = "*NOP", .instruction = nop1, .memory = no_memory, .cycles = 0 };
+        opcodes[0xE2] = .{ .name = "*NOP", .instruction = nop1, .memory = no_memory, .cycles = 0 };
+        opcodes[0x0C] = .{ .name = "*NOP", .instruction = nop2, .memory = no_memory, .cycles = 0 };
+        opcodes[0x1C] = .{ .name = "*NOP", .instruction = nop2, .memory = no_memory, .cycles = 0 };
+        opcodes[0x3C] = .{ .name = "*NOP", .instruction = nop2, .memory = no_memory, .cycles = 0 };
+        opcodes[0x5C] = .{ .name = "*NOP", .instruction = nop2, .memory = no_memory, .cycles = 0 };
+        opcodes[0x7C] = .{ .name = "*NOP", .instruction = nop2, .memory = no_memory, .cycles = 0 };
+        opcodes[0xDC] = .{ .name = "*NOP", .instruction = nop2, .memory = no_memory, .cycles = 0 };
+        opcodes[0xFC] = .{ .name = "*NOP", .instruction = nop2, .memory = no_memory, .cycles = 0 };
+        // these are unstable af
+        opcodes[0xAB] = .{ .name = "*ERR", .instruction = nop, .memory = no_memory, .cycles = 0 };
+        opcodes[0x8B] = .{ .name = "*ERR", .instruction = nop, .memory = no_memory, .cycles = 0 };
+        opcodes[0xBB] = .{ .name = "*ERR", .instruction = nop, .memory = no_memory, .cycles = 0 };
+        opcodes[0x9B] = .{ .name = "*ERR", .instruction = nop, .memory = no_memory, .cycles = 0 };
+        opcodes[0x93] = .{ .name = "*ERR", .instruction = nop, .memory = no_memory, .cycles = 0 };
+        opcodes[0x9F] = .{ .name = "*ERR", .instruction = nop, .memory = no_memory, .cycles = 0 };
+        opcodes[0x9E] = .{ .name = "*ERR", .instruction = nop, .memory = no_memory, .cycles = 0 };
+        opcodes[0x9C] = .{ .name = "*ERR", .instruction = nop, .memory = no_memory, .cycles = 0 };
+
+        const op_pc: u16 = self.pc_consume(1);
+        const opcode: u8 = self.bus.cpu_read_u8(op_pc);
+
         var tmp: if (dbg) [25]u8 else void = undefined;
         if (dbg) {
             self.opcode = opcode;
@@ -1309,657 +1065,23 @@ pub const Cpu = struct {
                 },
             ) catch {};
         }
-        switch (opcode) {
-            Op.ASL => {
-                self.no_memory_a(asl_acc, " ASL");
-            },
-            Op.ASL_ZP => {
-                self.zero_page(asl_addr, " ASL");
-            },
-            Op.ASL_A => {
-                self.absolute(asl_addr, " ASL");
-            },
-            Op.ASL_ZPX => {
-                self.zero_page_x(asl_addr, " ASL");
-            },
-            Op.ASL_AX => {
-                self.absolute_x(asl_addr, " ASL");
-            },
-            Op.LSR => {
-                self.no_memory_a(lsr_acc, " LSR");
-            },
-            Op.LSR_ZP => {
-                self.zero_page(lsr_addr, " LSR");
-            },
-            Op.LSR_ZPX => {
-                self.zero_page_x(lsr_addr, " LSR");
-            },
-            Op.LSR_A => {
-                self.absolute(lsr_addr, " LSR");
-            },
-            Op.LSR_AX => {
-                self.absolute_x(lsr_addr, " LSR");
-            },
-            Op.ROL => {
-                self.no_memory_a(rol_acc, " ROL");
-            },
-            Op.ROL_ZP => {
-                self.zero_page(rol_addr, " ROL");
-            },
-            Op.ROL_ZPX => {
-                self.zero_page_x(rol_addr, " ROL");
-            },
-            Op.ROL_A => {
-                self.absolute(rol_addr, " ROL");
-            },
-            Op.ROL_AX => {
-                self.absolute_x(rol_addr, " ROL");
-            },
-            Op.ROR => {
-                self.no_memory_a(ror_acc, " ROR");
-            },
-            Op.ROR_ZP => {
-                self.zero_page(ror_addr, " ROR");
-            },
-            Op.ROR_ZPX => {
-                self.zero_page_x(ror_addr, " ROR");
-            },
-            Op.ROR_A => {
-                self.absolute(ror_addr, " ROR");
-            },
-            Op.ROR_AX => {
-                self.absolute_x(ror_addr, " ROR");
-            },
-            Op.AND_IX => {
-                self.indirect_x(op_and, " AND");
-            },
-            Op.AND_ZP => {
-                self.zero_page(op_and, " AND");
-            },
-            Op.AND_I => {
-                self.immediate(op_and, " AND");
-            },
-            Op.AND_A => {
-                self.absolute(op_and, " AND");
-            },
-            Op.AND_IY => {
-                self.indirect_y(op_and, " AND");
-            },
-            Op.AND_ZPX => {
-                self.zero_page_x(op_and, " AND");
-            },
-            Op.AND_AY => {
-                self.absolute_y(op_and, " AND");
-            },
-            Op.AND_AX => {
-                self.absolute_x(op_and, " AND");
-            },
-            Op.ORA_I => {
-                self.immediate(ora, " ORA");
-            },
-            Op.ORA_ZP => {
-                self.zero_page(ora, " ORA");
-            },
-            Op.ORA_ZPX => {
-                self.zero_page_x(ora, " ORA");
-            },
-            Op.ORA_A => {
-                self.absolute(ora, " ORA");
-            },
-            Op.ORA_AX => {
-                self.absolute_x(ora, " ORA");
-            },
-            Op.ORA_AY => {
-                self.absolute_y(ora, " ORA");
-            },
-            Op.ORA_IX => {
-                self.indirect_x(ora, " ORA");
-            },
-            Op.ORA_IY => {
-                self.indirect_y(ora, " ORA");
-            },
-            Op.STA_ZP => {
-                self.zero_page(sta, " STA");
-            },
-            Op.STA_ZPX => {
-                self.zero_page_x(sta, " STA");
-            },
-            Op.STA_A => {
-                self.absolute(sta, " STA");
-            },
-            Op.STA_AX => {
-                self.absolute_x(sta, " STA");
-            },
-            Op.STA_AY => {
-                self.absolute_y(sta, " STA");
-            },
-            Op.STA_IX => {
-                self.indirect_x(sta, " STA");
-            },
-            Op.STA_IY => {
-                self.indirect_y(sta, " STA");
-            },
-            Op.LDA_I => {
-                self.immediate(lda, " LDA");
-            },
-            Op.LDA_ZP => {
-                self.zero_page(lda, " LDA");
-            },
-            Op.LDA_ZPX => {
-                self.zero_page_x(lda, " LDA");
-            },
-            Op.LDA_A => {
-                self.absolute(lda, " LDA");
-            },
-            Op.LDA_AX => {
-                self.absolute_x(lda, " LDA");
-            },
-            Op.LDA_AY => {
-                self.absolute_y(lda, " LDA");
-            },
-            Op.LDA_IX => {
-                self.indirect_x(lda, " LDA");
-            },
-            Op.LDA_IY => {
-                self.indirect_y(lda, " LDA");
-            },
-            Op.LDX_I => {
-                self.immediate(ldx, " LDX");
-            },
-            Op.LDX_ZP => {
-                self.zero_page(ldx, " LDX");
-            },
-            Op.LDX_ZPY => {
-                self.zero_page_y(ldx, " LDX");
-            },
-            Op.LDX_A => {
-                self.absolute(ldx, " LDX");
-            },
-            Op.LDX_AY => {
-                self.absolute_y(ldx, " LDX");
-            },
-            Op.LDY_I => {
-                self.immediate(ldy, " LDY");
-            },
-            Op.LDY_ZP => {
-                self.zero_page(ldy, " LDY");
-            },
-            Op.LDY_ZPX => {
-                self.zero_page_x(ldy, " LDY");
-            },
-            Op.LDY_A => {
-                self.absolute(ldy, " LDY");
-            },
-            Op.LDY_AX => {
-                self.absolute_x(ldy, " LDY");
-            },
-            Op.STX_ZP => {
-                self.zero_page(stx, " STX");
-            },
-            Op.STX_ZPY => {
-                self.zero_page_y(stx, " STX");
-            },
-            Op.STX_A => {
-                self.absolute(stx, " STX");
-            },
-            Op.STY_ZP => {
-                self.zero_page(sty, " STY");
-            },
-            Op.STY_ZPX => {
-                self.zero_page_x(sty, " STY");
-            },
-            Op.STY_A => {
-                self.absolute(sty, " STY");
-            },
-            Op.ADC_IX => {
-                self.indirect_x(adc, " ADC");
-            },
-            Op.ADC_ZP => {
-                self.zero_page(adc, " ADC");
-            },
-            Op.ADC_I => {
-                self.immediate(adc, " ADC");
-            },
-            Op.ADC_A => {
-                self.absolute(adc, " ADC");
-            },
-            Op.ADC_IY => {
-                self.indirect_y(adc, " ADC");
-            },
-            Op.ADC_ZPX => {
-                self.zero_page_x(adc, " ADC");
-            },
-            Op.ADC_AY => {
-                self.absolute_y(adc, " ADC");
-            },
-            Op.ADC_AX => {
-                self.absolute_x(adc, " ADC");
-            },
-            Op.SBC_I_U => {
-                self.immediate(sbc, "*SBC");
-            },
-            Op.SBC_IX => {
-                self.indirect_x(sbc, " SBC");
-            },
-            Op.SBC_ZP => {
-                self.zero_page(sbc, " SBC");
-            },
-            Op.SBC_I => {
-                self.immediate(sbc, " SBC");
-            },
-            Op.SBC_A => {
-                self.absolute(sbc, " SBC");
-            },
-            Op.SBC_IY => {
-                self.indirect_y(sbc, " SBC");
-            },
-            Op.SBC_ZPX => {
-                self.zero_page_x(sbc, " SBC");
-            },
-            Op.SBC_AY => {
-                self.absolute_y(sbc, " SBC");
-            },
-            Op.SBC_AX => {
-                self.absolute_x(sbc, " SBC");
-            },
-            Op.TAX => {
-                self.no_memory(tax, " TAX");
-            },
-            Op.TAY => {
-                self.no_memory(tay, " TAY");
-            },
-            Op.TXA => {
-                self.no_memory(txa, " TXA");
-            },
-            Op.TYA => {
-                self.no_memory(tya, " TYA");
-            },
-            Op.INX => {
-                self.no_memory(inx, " INX");
-            },
-            Op.INY => {
-                self.no_memory(iny, " INY");
-            },
-            Op.DEX => {
-                self.no_memory(dex, " DEX");
-            },
-            Op.DEY => {
-                self.no_memory(dey, " DEY");
-            },
-            Op.INC_ZP => {
-                self.zero_page(inc, " INC");
-            },
-            Op.INC_ZPX => {
-                self.zero_page_x(inc, " INC");
-            },
-            Op.INC_A => {
-                self.absolute(inc, " INC");
-            },
-            Op.INC_AX => {
-                self.absolute_x(inc, " INC");
-            },
-            Op.DEC_ZP => {
-                self.zero_page(dec, " DEC");
-            },
-            Op.DEC_ZPX => {
-                self.zero_page_x(dec, " DEC");
-            },
-            Op.DEC_A => {
-                self.absolute(dec, " DEC");
-            },
-            Op.DEC_AX => {
-                self.absolute_x(dec, " DEC");
-            },
-            Op.CMP_IX => {
-                self.indirect_x(cmp, " CMP");
-            },
-            Op.CMP_ZP => {
-                self.zero_page(cmp, " CMP");
-            },
-            Op.CMP_I => {
-                self.immediate(cmp, " CMP");
-            },
-            Op.CMP_A => {
-                self.absolute(cmp, " CMP");
-            },
-            Op.CMP_IY => {
-                self.indirect_y(cmp, " CMP");
-            },
-            Op.CMP_ZPX => {
-                self.zero_page_x(cmp, " CMP");
-            },
-            Op.CMP_AY => {
-                self.absolute_y(cmp, " CMP");
-            },
-            Op.CMP_AX => {
-                self.absolute_x(cmp, " CMP");
-            },
-            Op.CPX_I => {
-                self.immediate(cpx, " CPX");
-            },
-            Op.CPX_A => {
-                self.absolute(cpx, " CPX");
-            },
-            Op.CPX_ZP => {
-                self.zero_page(cpx, " CPX");
-            },
-            Op.CPY_I => {
-                self.immediate(cpy, " CPY");
-            },
-            Op.CPY_A => {
-                self.absolute(cpy, " CPY");
-            },
-            Op.CPY_ZP => {
-                self.zero_page(cpy, " CPY");
-            },
-            Op.EOR_ZP => {
-                self.zero_page(eor, " EOR");
-            },
-            Op.EOR_I => {
-                self.immediate(eor, " EOR");
-            },
-            Op.EOR_A => {
-                self.absolute(eor, " EOR");
-            },
-            Op.EOR_AX => {
-                self.absolute_x(eor, " EOR");
-            },
-            Op.EOR_AY => {
-                self.absolute_y(eor, " EOR");
-            },
-            Op.EOR_IX => {
-                self.indirect_x(eor, " EOR");
-            },
-            Op.EOR_IY => {
-                self.indirect_y(eor, " EOR");
-            },
-            Op.EOR_ZPX => {
-                self.zero_page_x(eor, " EOR");
-            },
-            Op.TSX => {
-                self.no_memory(tsx, " TSX");
-            },
-            Op.TXS => {
-                self.no_memory(txs, " TXS");
-            },
-            Op.PHA => {
-                self.no_memory(pha, " PHA");
-            },
-            Op.PLA => {
-                self.no_memory(pla, " PLA");
-            },
-            Op.JMP_A => {
-                self.long_jump(jmp, " JMP");
-            },
-            Op.JMP_I => {
-                self.indirect(jmp, " JMP");
-            },
-            Op.JSR => {
-                self.subroutine_jump(jsr, " JSR");
-            },
-            Op.RTS => {
-                self.no_memory(rts, " RTS");
-            },
-            Op.BCC => {
-                self.local_jump(bcc, " BCC");
-            },
-            Op.BCS => {
-                self.local_jump(bcs, " BCS");
-            },
-            Op.BEQ => {
-                self.local_jump(beq, " BEQ");
-            },
-            Op.BMI => {
-                self.local_jump(bmi, " BMI");
-            },
-            Op.BNE => {
-                self.local_jump(bne, " BNE");
-            },
-            Op.BPL => {
-                self.local_jump(bpl, " BPL");
-            },
-            Op.BVC => {
-                self.local_jump(bvc, " BVC");
-            },
-            Op.BVS => {
-                self.local_jump(bvs, " BVS");
-            },
-            Op.BIT_ZP => {
-                self.zero_page(bit, " BIT");
-            },
-            Op.BIT_A => {
-                self.absolute(bit, " BIT");
-            },
-            Op.CLC => {
-                self.no_memory(clc, " CLC");
-            },
-            Op.CLI => {
-                self.no_memory(cli, " CLI");
-            },
-            Op.CLV => {
-                self.no_memory(clv, " CLV");
-            },
-            Op.SEC => {
-                self.no_memory(sec, " SEC");
-            },
-            Op.SED => {
-                self.no_memory(sed, " SED");
-            },
-            Op.CLD => {
-                self.no_memory(cld, " CLD");
-            },
-            Op.SEI => {
-                self.no_memory(sei, " SEI");
-            },
-            Op.PHP => {
-                self.no_memory(php, " PHP");
-            },
-            Op.PLP => {
-                self.no_memory(plp, " PLP");
-            },
-            Op.RTI => {
-                self.no_memory(rti, " RTI");
-            },
-            Op.BRK => {
-                self.no_memory(nop, " BRK");
-                ret = false;
-            },
-            Op.NOP => {
-                self.no_memory(nop, " NOP");
-            },
-            Op.DCP_IX => {
-                self.indirect_x(dcp, "*DCP");
-            },
-            Op.DCP_IY => {
-                self.indirect_y(dcp, "*DCP");
-            },
-            Op.DCP_ZP => {
-                self.zero_page(dcp, "*DCP");
-            },
-            Op.DCP_ZPX => {
-                self.zero_page_x(dcp, "*DCP");
-            },
-            Op.DCP_A => {
-                self.absolute(dcp, "*DCP");
-            },
-            Op.DCP_AY => {
-                self.absolute_y(dcp, "*DCP");
-            },
-            Op.DCP_AX => {
-                self.absolute_x(dcp, "*DCP");
-            },
-            Op.RLA_ZP => {
-                self.zero_page(rla, "*RLA");
-            },
-            Op.RLA_ZPX => {
-                self.zero_page_x(rla, "*RLA");
-            },
-            Op.RLA_IX => {
-                self.indirect_x(rla, "*RLA");
-            },
-            Op.RLA_IY => {
-                self.indirect_y(rla, "*RLA");
-            },
-            Op.RLA_A => {
-                self.absolute(rla, "*RLA");
-            },
-            Op.RLA_AX => {
-                self.absolute_x(rla, "*RLA");
-            },
-            Op.RLA_AY => {
-                self.absolute_y(rla, "*RLA");
-            },
-            Op.SLO_ZP => {
-                self.zero_page(slo, "*SLO");
-            },
-            Op.SLO_ZPX => {
-                self.zero_page_x(slo, "*SLO");
-            },
-            Op.SLO_IX => {
-                self.indirect_x(slo, "*SLO");
-            },
-            Op.SLO_IY => {
-                self.indirect_y(slo, "*SLO");
-            },
-            Op.SLO_A => {
-                self.absolute(slo, "*SLO");
-            },
-            Op.SLO_AX => {
-                self.absolute_x(slo, "*SLO");
-            },
-            Op.SLO_AY => {
-                self.absolute_y(slo, "*SLO");
-            },
-            Op.SRE_ZP => {
-                self.zero_page(sre, "*SRE");
-            },
-            Op.SRE_ZPX => {
-                self.zero_page_x(sre, "*SRE");
-            },
-            Op.SRE_IX => {
-                self.indirect_x(sre, "*SRE");
-            },
-            Op.SRE_IY => {
-                self.indirect_y(sre, "*SRE");
-            },
-            Op.SRE_A => {
-                self.absolute(sre, "*SRE");
-            },
-            Op.SRE_AX => {
-                self.absolute_x(sre, "*SRE");
-            },
-            Op.SRE_AY => {
-                self.absolute_y(sre, "*SRE");
-            },
-            Op.RRA_ZP => {
-                self.zero_page(rra, "*RRA");
-            },
-            Op.RRA_ZPX => {
-                self.zero_page_x(rra, "*RRA");
-            },
-            Op.RRA_IX => {
-                self.indirect_x(rra, "*RRA");
-            },
-            Op.RRA_IY => {
-                self.indirect_y(rra, "*RRA");
-            },
-            Op.RRA_A => {
-                self.absolute(rra, "*RRA");
-            },
-            Op.RRA_AY => {
-                self.absolute_y(rra, "*RRA");
-            },
-            Op.RRA_AX => {
-                self.absolute_x(rra, "*RRA");
-            },
-            Op.ISB_ZP => {
-                self.zero_page(isb, "*ISB");
-            },
-            Op.ISB_ZPX => {
-                self.zero_page_x(isb, "*ISB");
-            },
-            Op.ISB_IX => {
-                self.indirect_x(isb, "*ISB");
-            },
-            Op.ISB_IY => {
-                self.indirect_y(isb, "*ISB");
-            },
-            Op.ISB_A => {
-                self.absolute(isb, "*ISB");
-            },
-            Op.ISB_AY => {
-                self.absolute_y(isb, "*ISB");
-            },
-            Op.ISB_AX => {
-                self.absolute_x(isb, "*ISB");
-            },
-            Op.LAX_ZP => {
-                self.zero_page(lax, "*LAX");
-            },
-            Op.LAX_ZPY => {
-                self.zero_page_y(lax, "*LAX");
-            },
-            Op.LAX_IX => {
-                self.indirect_x(lax, "*LAX");
-            },
-            Op.LAX_IY => {
-                self.indirect_y(lax, "*LAX");
-            },
-            Op.LAX_A => {
-                self.absolute(lax, "*LAX");
-            },
-            Op.LAX_AY => {
-                self.absolute_y(lax, "*LAX");
-            },
-            Op.SAX_ZP => {
-                self.zero_page(sax, "*SAX");
-            },
-            Op.SAX_ZPY => {
-                self.zero_page_y(sax, "*SAX");
-            },
-            Op.SAX_IX => {
-                self.indirect_x(sax, "*SAX");
-            },
-            Op.SAX_A => {
-                self.absolute(sax, "*SAX");
-            },
-            Op.ALR => {
-                self.immediate(alr, "*ALR");
-            },
-            Op.ANC0, Op.ANC1 => {
-                self.immediate(anc, "*ANC");
-            },
-            Op.AXS => {
-                self.immediate(axs, "*AXS");
-            },
-            Op.ARR => {
-                self.immediate(arr, "*ARR");
-            },
-            Op.NOP_1, Op.NOP_2, Op.NOP_3, Op.NOP_4, Op.NOP_5, Op.NOP_6, Op.NOP_7, Op.NOP_8, Op.NOP_9, Op.NOP_10, Op.NOP_11, Op.NOP_12, Op.NOP_13, Op.NOP_14, Op.NOP_15, Op.NOP_16, Op.NOP_17, Op.NOP_18 => {
-                self.no_memory(nop, "*NOP");
-            },
-            Op.NOP_ZP_0, Op.NOP_ZP_1, Op.NOP_ZP_2, Op.NOP_ZPX_0, Op.NOP_ZPX_1, Op.NOP_ZPX_2, Op.NOP_ZPX_3, Op.NOP_ZPX_4, Op.NOP_ZPX_5, Op.SKB0, Op.SKB1, Op.SKB2, Op.SKB3, Op.SKB4 => {
-                self.no_memory(nop, "*NOP");
-                _ = self.pc_consume(1);
-            },
-            Op.NOP_A, Op.NOP_AX_0, Op.NOP_AX_1, Op.NOP_AX_2, Op.NOP_AX_3, Op.NOP_AX_4, Op.NOP_AX_5 => {
-                self.no_memory(nop, "*NOP");
-                _ = self.pc_consume(2);
-            },
-            Op.LXA, Op.XAA, Op.LAS, Op.TAS, Op.AHX_IY, Op.AHX_AY, Op.SHX, Op.SHY => {
-                // these are highly unstable and not used
-                unreachable;
-            },
-        }
-        self.cycles += OpCycles[@intFromEnum(opcode)];
+
+        const op: OpCode = opcodes[opcode];
+        @as(
+            *const fn (*Cpu, *const anyopaque, *const [4:0]u8) void,
+            @ptrCast(op.memory),
+        )(self, op.instruction, op.name);
+        self.cycles += op.cycles;
+
         if (dbg) {
             _ = std.fmt.bufPrint(
                 trace,
                 "{X:0>4}  {s: <8} {s: <32} {s} PPU:TODO CYC:{}",
-                .{ pc_saved, self.binary, self.assembly, tmp, self.cycles },
+                .{ op_pc, self.binary, self.assembly, tmp, self.cycles },
             ) catch {};
         }
-        return ret;
+
+        return opcode != 0x00;
     }
 
     pub fn reset(self: *Cpu) void {
