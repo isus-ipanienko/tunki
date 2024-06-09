@@ -1,13 +1,14 @@
 const std = @import("std");
 
-const Bus = @import("bus.zig").Bus;
+const FileINES = @import("ines.zig").FileINES;
 const Cpu = @import("cpu.zig").Cpu;
-const Op = @import("cpu.zig").Op;
+const Ppu = @import("ppu.zig").Ppu;
 
 test "cpu" {
-    var bus: Bus = try Bus.init("nestest.nes");
-    var cpu: Cpu = Cpu.init(&bus);
-    cpu.reset();
+    const ines: FileINES = try FileINES.init("nestest.nes");
+    var ppu: Ppu = undefined;
+    var cpu: Cpu = Cpu.init(ines, &ppu);
+    ppu = Ppu.init(ines);
     std.debug.print("\n", .{});
     var trace: [128]u8 = undefined;
     while (cpu.exec(&trace)) {
@@ -17,9 +18,8 @@ test "cpu" {
 }
 
 pub fn main() !void {
-    var bus: Bus = try Bus.init("nestest.nes");
-    var cpu: Cpu = Cpu.init(&bus);
-    cpu.reset();
+    const ines: FileINES = try FileINES.init("nestest.nes");
+    var cpu: Cpu = Cpu.init(ines);
     const trace: void = undefined;
     while (cpu.exec(trace)) {}
 }

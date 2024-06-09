@@ -2,7 +2,71 @@ const std = @import("std");
 const builtin = @import("builtin");
 const dbg = builtin.mode == std.builtin.OptimizeMode.Debug;
 
-const Bus = @import("bus.zig").Bus;
+const FileINES = @import("ines.zig").FileINES;
+const Ppu = @import("ppu.zig").Ppu;
+
+pub const Memory = struct {
+    pub const CPU_MEM_SIZE: usize = 0x10000;
+    pub const CPU_RAM_LO: u16 = 0x0000;
+    pub const CPU_RAM_HI: u16 = 0x1FFF;
+    pub const CPU_RAM_CHUNK: u16 = 0x7FF;
+    pub const PRG_ROM_LO: u16 = 0x8000;
+    pub const PRG_ROM_HI: u16 = 0xFFFF;
+    pub const PRG_ROM_CHUNK: u16 = 0x4000;
+    pub const CHR_ROM_CHUNK: u16 = 0x2000;
+
+    ppu: *Ppu,
+    cpu_mem: [CPU_MEM_SIZE]u8,
+    prg_rom_mirror: u16,
+
+    pub fn init(ines: FileINES, ppu: *Ppu) Memory {
+        return Memory{
+            .cpu_mem = ines.cpu_mem,
+            .prg_rom_mirror = PRG_ROM_LO + ines.prg_rom_size,
+            .ppu = ppu,
+        };
+    }
+
+    pub fn read_u8(self: Memory, addr: u16) u8 {
+        return switch (addr) {
+            CPU_RAM_LO...CPU_RAM_HI => self.cpu_mem[addr & CPU_RAM_CHUNK],
+            PRG_ROM_LO...PRG_ROM_HI => {
+                var a = addr;
+                if (a >= self.prg_rom_mirror) {
+                    a -= PRG_ROM_CHUNK;
+                }
+                return self.cpu_mem[a];
+            },
+            0x2000, 0x2001, 0x2003, 0x2005, 0x2006, 0x4014 => unreachable,
+            0x2007 => return self.ppu.read(),
+            0x2008...0x3FFF => return self.read_u8(addr & 0x200F),
+            else => unreachable,
+        };
+    }
+
+    pub fn write_u8(self: *Memory, addr: u16, data: u8) void {
+        switch (addr) {
+            CPU_RAM_LO...CPU_RAM_HI => self.cpu_mem[addr & CPU_RAM_CHUNK] = data,
+            PRG_ROM_LO...PRG_ROM_HI => unreachable,
+            0x2000 => self.ppu.reg.control.set(data),
+            0x2006 => self.ppu.reg.addr.write(data),
+            // 0x2007 => self.ppu.mem.write(data),
+            0x2008...0x3FFF => self.write_u8(addr & 0x200F, data),
+            else => unreachable,
+        }
+    }
+
+    pub fn read_u16(self: Memory, addr: u16) u16 {
+        const hi: u16 = @as(u16, self.read_u8(addr + 1)) << 8;
+        const lo: u16 = self.read_u8(addr);
+        return hi | lo;
+    }
+
+    pub fn write_u16(self: *Memory, addr: u16, data: u16) void {
+        self.write_u8(addr, (data & 0xFF));
+        self.write_u8(addr + 1, (data >> 8));
+    }
+};
 
 const Registers = struct {
     const STACK_BASE: u16 = 0x0100;
@@ -57,24 +121,26 @@ const OpCode = struct {
 };
 
 pub const Cpu = struct {
+    cycles: u64,
     reg: Registers,
     flags: Flags,
-    cycles: u64,
-    bus: *Bus,
+    mem: Memory,
     binary: if (dbg) [8]u8 else void,
     assembly: if (dbg) [32]u8 else void,
     opcode: if (dbg) u8 else void,
 
-    pub fn init(bus: *Bus) Cpu {
-        return Cpu{
-            .reg = Registers.init(),
-            .flags = Flags.init(),
+    pub fn init(ines: FileINES, ppu: *Ppu) Cpu {
+        var cpu: Cpu = Cpu{
+            .reg = undefined,
+            .flags = undefined,
             .cycles = 0,
-            .bus = bus,
+            .mem = Memory.init(ines, ppu),
             .binary = undefined,
             .assembly = undefined,
             .opcode = undefined,
         };
+        cpu.reset();
+        return cpu;
     }
 
     fn pc_consume(self: *Cpu, val: u16) u16 {
@@ -102,7 +168,7 @@ pub const Cpu = struct {
         name: if (dbg) *const [4:0]u8 else void,
     ) void {
         if (dbg) {
-            const bin: u8 = self.bus.cpu_read_u8(self.reg.pc);
+            const bin: u8 = self.mem.read_u8(self.reg.pc);
             self.make_binary(self.opcode, bin, null);
             const addr: u16 = @bitCast(@as(i16, @bitCast(self.reg.pc +% 1)) +% @as(i8, @bitCast(bin)));
             _ = std.fmt.bufPrint(&self.assembly, "{s} ${X:0>4}", .{ name, addr }) catch {};
@@ -115,7 +181,7 @@ pub const Cpu = struct {
         instruction: *const fn (*Cpu, u16) void,
         name: if (dbg) *const [4:0]u8 else void,
     ) void {
-        const addr: u16 = self.bus.cpu_read_u16(self.pc_consume(2));
+        const addr: u16 = self.mem.read_u16(self.pc_consume(2));
         if (dbg) {
             self.make_binary(self.opcode, @truncate(addr & 0xFF), @truncate(addr >> 8));
             _ = std.fmt.bufPrint(&self.assembly, "{s} ${X:0>4}", .{ name, addr }) catch {};
@@ -128,7 +194,7 @@ pub const Cpu = struct {
         instruction: *const fn (*Cpu, u16) void,
         name: if (dbg) *const [4:0]u8 else void,
     ) void {
-        const addr: u16 = self.bus.cpu_read_u16(self.reg.pc);
+        const addr: u16 = self.mem.read_u16(self.reg.pc);
         if (dbg) {
             self.make_binary(self.opcode, @truncate(addr & 0xFF), @truncate(addr >> 8));
             _ = std.fmt.bufPrint(&self.assembly, "{s} ${X:0>4}", .{ name, addr }) catch {};
@@ -167,7 +233,7 @@ pub const Cpu = struct {
     ) void {
         const addr: u16 = self.pc_consume(1);
         if (dbg) {
-            const bin: u8 = self.bus.cpu_read_u8(addr);
+            const bin: u8 = self.mem.read_u8(addr);
             self.make_binary(self.opcode, bin, null);
             _ = std.fmt.bufPrint(&self.assembly, "{s} #${X:0>2}", .{ name, bin }) catch {};
         }
@@ -179,13 +245,13 @@ pub const Cpu = struct {
         instruction: *const fn (*Cpu, u16) void,
         name: if (dbg) *const [4:0]u8 else void,
     ) void {
-        const addr: u8 = self.bus.cpu_read_u8(self.pc_consume(1));
+        const addr: u8 = self.mem.read_u8(self.pc_consume(1));
         if (dbg) {
             self.make_binary(self.opcode, addr, null);
             _ = std.fmt.bufPrint(
                 &self.assembly,
                 "{s} ${X:0>2} = {X:0>2}",
-                .{ name, addr, self.bus.cpu_read_u8(addr) },
+                .{ name, addr, self.mem.read_u8(addr) },
             ) catch {};
         }
         instruction(self, addr);
@@ -196,14 +262,14 @@ pub const Cpu = struct {
         instruction: *const fn (*Cpu, u16) void,
         name: if (dbg) *const [4:0]u8 else void,
     ) void {
-        const addr: u8 = self.bus.cpu_read_u8(self.pc_consume(1)) +% self.reg.x;
+        const addr: u8 = self.mem.read_u8(self.pc_consume(1)) +% self.reg.x;
         if (dbg) {
-            const bin: u8 = self.bus.cpu_read_u8(self.reg.pc - 1);
+            const bin: u8 = self.mem.read_u8(self.reg.pc - 1);
             self.make_binary(self.opcode, bin, null);
             _ = std.fmt.bufPrint(
                 &self.assembly,
                 "{s} ${X:0>2},X @ {X:0>2} = {X:0>2}",
-                .{ name, bin, addr, self.bus.cpu_read_u8(addr) },
+                .{ name, bin, addr, self.mem.read_u8(addr) },
             ) catch {};
         }
         instruction(self, addr);
@@ -214,14 +280,14 @@ pub const Cpu = struct {
         instruction: *const fn (*Cpu, u16) void,
         name: if (dbg) *const [4:0]u8 else void,
     ) void {
-        const addr: u8 = self.bus.cpu_read_u8(self.pc_consume(1)) +% self.reg.y;
+        const addr: u8 = self.mem.read_u8(self.pc_consume(1)) +% self.reg.y;
         if (dbg) {
-            const bin: u8 = self.bus.cpu_read_u8(self.reg.pc - 1);
+            const bin: u8 = self.mem.read_u8(self.reg.pc - 1);
             self.make_binary(self.opcode, bin, null);
             _ = std.fmt.bufPrint(
                 &self.assembly,
                 "{s} ${X:0>2},Y @ {X:0>2} = {X:0>2}",
-                .{ name, bin, addr, self.bus.cpu_read_u8(addr) },
+                .{ name, bin, addr, self.mem.read_u8(addr) },
             ) catch {};
         }
         instruction(self, addr);
@@ -232,13 +298,13 @@ pub const Cpu = struct {
         instruction: *const fn (*Cpu, u16) void,
         name: if (dbg) *const [4:0]u8 else void,
     ) void {
-        const addr: u16 = self.bus.cpu_read_u16(self.pc_consume(2));
+        const addr: u16 = self.mem.read_u16(self.pc_consume(2));
         if (dbg) {
             self.make_binary(self.opcode, @truncate(addr & 0xFF), @truncate(addr >> 8));
             _ = std.fmt.bufPrint(
                 &self.assembly,
                 "{s} ${X:0>4} = {X:0>2}",
-                .{ name, addr, self.bus.cpu_read_u8(addr) },
+                .{ name, addr, self.mem.read_u8(addr) },
             ) catch {};
         }
         instruction(self, addr);
@@ -249,14 +315,14 @@ pub const Cpu = struct {
         instruction: *const fn (*Cpu, u16) void,
         name: if (dbg) *const [4:0]u8 else void,
     ) void {
-        const addr: u16 = self.bus.cpu_read_u16(self.pc_consume(2)) +% @as(u16, self.reg.x);
+        const addr: u16 = self.mem.read_u16(self.pc_consume(2)) +% @as(u16, self.reg.x);
         if (dbg) {
-            const bin: u16 = self.bus.cpu_read_u16(self.reg.pc - 2);
+            const bin: u16 = self.mem.read_u16(self.reg.pc - 2);
             self.make_binary(self.opcode, @truncate(bin & 0xFF), @truncate(bin >> 8));
             _ = std.fmt.bufPrint(
                 &self.assembly,
                 "{s} ${X:0>4},X @ {X:0>4} = {X:0>2}",
-                .{ name, bin, addr, self.bus.cpu_read_u8(addr) },
+                .{ name, bin, addr, self.mem.read_u8(addr) },
             ) catch {};
         }
         instruction(self, addr);
@@ -267,14 +333,14 @@ pub const Cpu = struct {
         instruction: *const fn (*Cpu, u16) void,
         name: if (dbg) *const [4:0]u8 else void,
     ) void {
-        const addr: u16 = self.bus.cpu_read_u16(self.pc_consume(2)) +% @as(u16, self.reg.y);
+        const addr: u16 = self.mem.read_u16(self.pc_consume(2)) +% @as(u16, self.reg.y);
         if (dbg) {
-            const bin: u16 = self.bus.cpu_read_u16(self.reg.pc - 2);
+            const bin: u16 = self.mem.read_u16(self.reg.pc - 2);
             self.make_binary(self.opcode, @truncate(bin & 0xFF), @truncate(bin >> 8));
             _ = std.fmt.bufPrint(
                 &self.assembly,
                 "{s} ${X:0>4},Y @ {X:0>4} = {X:0>2}",
-                .{ name, bin, addr, self.bus.cpu_read_u8(addr) },
+                .{ name, bin, addr, self.mem.read_u8(addr) },
             ) catch {};
         }
         instruction(self, addr);
@@ -286,14 +352,14 @@ pub const Cpu = struct {
         name: if (dbg) *const [4:0]u8 else void,
     ) void {
         // indirect mode is bugged af
-        const ref: u16 = self.bus.cpu_read_u16(self.pc_consume(2));
+        const ref: u16 = self.mem.read_u16(self.pc_consume(2));
         var deref: u16 = undefined;
         if (ref & 0x00FF == 0x00FF) {
-            const lo: u16 = self.bus.cpu_read_u8(ref);
-            const hi: u16 = self.bus.cpu_read_u8(ref & 0xFF00);
+            const lo: u16 = self.mem.read_u8(ref);
+            const hi: u16 = self.mem.read_u8(ref & 0xFF00);
             deref = (hi << 8) | lo;
         } else {
-            deref = self.bus.cpu_read_u16(ref);
+            deref = self.mem.read_u16(ref);
         }
         if (dbg) {
             self.make_binary(self.opcode, @truncate(ref & 0xFF), @truncate(ref >> 8));
@@ -307,17 +373,17 @@ pub const Cpu = struct {
         instruction: *const fn (*Cpu, u16) void,
         name: if (dbg) *const [4:0]u8 else void,
     ) void {
-        const ptr: u8 = self.bus.cpu_read_u8(self.pc_consume(1)) +% self.reg.x;
-        const hi: u16 = @as(u16, self.bus.cpu_read_u8(ptr +% 1)) << 8;
-        const lo: u16 = @as(u16, self.bus.cpu_read_u8(ptr));
+        const ptr: u8 = self.mem.read_u8(self.pc_consume(1)) +% self.reg.x;
+        const hi: u16 = @as(u16, self.mem.read_u8(ptr +% 1)) << 8;
+        const lo: u16 = @as(u16, self.mem.read_u8(ptr));
         const addr: u16 = hi | lo;
         if (dbg) {
-            const bin: u8 = self.bus.cpu_read_u8(self.reg.pc - 1);
+            const bin: u8 = self.mem.read_u8(self.reg.pc - 1);
             self.make_binary(self.opcode, bin, null);
             _ = std.fmt.bufPrint(
                 &self.assembly,
                 "{s} (${X:0>2},X) @ {X:0>2} = {X:0>4} = {X:0>2}",
-                .{ name, bin, bin +% self.reg.x, addr, self.bus.cpu_read_u8(addr) },
+                .{ name, bin, bin +% self.reg.x, addr, self.mem.read_u8(addr) },
             ) catch {};
         }
         instruction(self, addr);
@@ -328,17 +394,17 @@ pub const Cpu = struct {
         instruction: *const fn (*Cpu, u16) void,
         name: if (dbg) *const [4:0]u8 else void,
     ) void {
-        const ptr: u8 = self.bus.cpu_read_u8(self.pc_consume(1));
-        const hi: u16 = @as(u16, self.bus.cpu_read_u8(ptr +% 1)) << 8;
-        const lo: u16 = @as(u16, self.bus.cpu_read_u8(ptr));
+        const ptr: u8 = self.mem.read_u8(self.pc_consume(1));
+        const hi: u16 = @as(u16, self.mem.read_u8(ptr +% 1)) << 8;
+        const lo: u16 = @as(u16, self.mem.read_u8(ptr));
         const addr: u16 = (hi | lo) +% @as(u16, self.reg.y);
         if (dbg) {
-            const bin: u16 = self.bus.cpu_read_u8(self.reg.pc - 1);
+            const bin: u16 = self.mem.read_u8(self.reg.pc - 1);
             self.make_binary(self.opcode, @truncate(bin), null);
             _ = std.fmt.bufPrint(
                 &self.assembly,
                 "{s} (${X:0>2}),Y = {X:0>4} @ {X:0>4} = {X:0>2}",
-                .{ name, bin, hi | lo, addr, self.bus.cpu_read_u8(addr) },
+                .{ name, bin, hi | lo, addr, self.mem.read_u8(addr) },
             ) catch {};
         }
         instruction(self, addr);
@@ -346,11 +412,11 @@ pub const Cpu = struct {
 
     fn stack_pop_u8(self: *Cpu) u8 {
         self.reg.sp +%= 1;
-        return self.bus.cpu_read_u8(Registers.STACK_BASE +% self.reg.sp);
+        return self.mem.read_u8(Registers.STACK_BASE +% self.reg.sp);
     }
 
     fn stack_push_u8(self: *Cpu, data: u8) void {
-        self.bus.cpu_write_u8(Registers.STACK_BASE +% self.reg.sp, data);
+        self.mem.write_u8(Registers.STACK_BASE +% self.reg.sp, data);
         self.reg.sp -%= 1;
     }
 
@@ -371,29 +437,29 @@ pub const Cpu = struct {
     }
 
     fn sta(self: *Cpu, addr: u16) void {
-        self.bus.cpu_write_u8(addr, self.reg.a);
+        self.mem.write_u8(addr, self.reg.a);
     }
 
     fn stx(self: *Cpu, addr: u16) void {
-        self.bus.cpu_write_u8(addr, self.reg.x);
+        self.mem.write_u8(addr, self.reg.x);
     }
 
     fn sty(self: *Cpu, addr: u16) void {
-        self.bus.cpu_write_u8(addr, self.reg.y);
+        self.mem.write_u8(addr, self.reg.y);
     }
 
     fn lda(self: *Cpu, addr: u16) void {
-        self.reg.a = self.bus.cpu_read_u8(addr);
+        self.reg.a = self.mem.read_u8(addr);
         update_zero_negative_flags(self, self.reg.a);
     }
 
     fn ldx(self: *Cpu, addr: u16) void {
-        self.reg.x = self.bus.cpu_read_u8(addr);
+        self.reg.x = self.mem.read_u8(addr);
         update_zero_negative_flags(self, self.reg.x);
     }
 
     fn ldy(self: *Cpu, addr: u16) void {
-        self.reg.y = self.bus.cpu_read_u8(addr);
+        self.reg.y = self.mem.read_u8(addr);
         update_zero_negative_flags(self, self.reg.y);
     }
 
@@ -407,21 +473,21 @@ pub const Cpu = struct {
     }
 
     fn sbc(self: *Cpu, addr: u16) void {
-        const val: i8 = @bitCast(self.bus.cpu_read_u8(addr));
+        const val: i8 = @bitCast(self.mem.read_u8(addr));
         self.acc(@bitCast(-val -% 1));
     }
 
     fn adc(self: *Cpu, addr: u16) void {
-        self.acc(self.bus.cpu_read_u8(addr));
+        self.acc(self.mem.read_u8(addr));
     }
 
     fn op_and(self: *Cpu, addr: u16) void {
-        self.reg.a &= self.bus.cpu_read_u8(addr);
+        self.reg.a &= self.mem.read_u8(addr);
         self.update_zero_negative_flags(self.reg.a);
     }
 
     fn ora(self: *Cpu, addr: u16) void {
-        self.reg.a |= self.bus.cpu_read_u8(addr);
+        self.reg.a |= self.mem.read_u8(addr);
         self.update_zero_negative_flags(self.reg.a);
     }
 
@@ -437,8 +503,8 @@ pub const Cpu = struct {
     }
 
     fn asl_addr(self: *Cpu, addr: u16) u8 {
-        const data: u8 = self.asl(self.bus.cpu_read_u8(addr));
-        self.bus.cpu_write_u8(addr, data);
+        const data: u8 = self.asl(self.mem.read_u8(addr));
+        self.mem.write_u8(addr, data);
         return data;
     }
 
@@ -454,8 +520,8 @@ pub const Cpu = struct {
     }
 
     fn lsr_addr(self: *Cpu, addr: u16) u8 {
-        const data: u8 = self.lsr(self.bus.cpu_read_u8(addr));
-        self.bus.cpu_write_u8(addr, data);
+        const data: u8 = self.lsr(self.mem.read_u8(addr));
+        self.mem.write_u8(addr, data);
         return data;
     }
 
@@ -472,8 +538,8 @@ pub const Cpu = struct {
     }
 
     fn rol_addr(self: *Cpu, addr: u16) u8 {
-        const data: u8 = self.rol(self.bus.cpu_read_u8(addr));
-        self.bus.cpu_write_u8(addr, data);
+        const data: u8 = self.rol(self.mem.read_u8(addr));
+        self.mem.write_u8(addr, data);
         return data;
     }
 
@@ -490,64 +556,64 @@ pub const Cpu = struct {
     }
 
     fn ror_addr(self: *Cpu, addr: u16) u8 {
-        const data: u8 = self.ror(self.bus.cpu_read_u8(addr));
-        self.bus.cpu_write_u8(addr, data);
+        const data: u8 = self.ror(self.mem.read_u8(addr));
+        self.mem.write_u8(addr, data);
         return data;
     }
 
     fn branch_relative(self: *Cpu, cond: bool) void {
-        const offset: i8 = @bitCast(self.bus.cpu_read_u8(self.pc_consume(1)));
+        const offset: i8 = @bitCast(self.mem.read_u8(self.pc_consume(1)));
         if (cond) {
             self.reg.pc = @bitCast(@as(i16, @bitCast(self.reg.pc)) +% offset);
         }
     }
 
     fn bit(self: *Cpu, addr: u16) void {
-        const test_val: u8 = self.bus.cpu_read_u8(addr);
+        const test_val: u8 = self.mem.read_u8(addr);
         self.flags.zero = test_val & self.reg.a == 0;
         self.flags.overflow = test_val & (1 << 6) != 0;
         self.flags.negative = test_val & (1 << 7) != 0;
     }
 
     fn cmp(self: *Cpu, addr: u16) void {
-        const val: u8 = self.bus.cpu_read_u8(addr);
+        const val: u8 = self.mem.read_u8(addr);
         self.flags.carry = self.reg.a >= val;
         self.update_zero_negative_flags(self.reg.a -% val);
     }
 
     fn cpx(self: *Cpu, addr: u16) void {
-        const val: u8 = self.bus.cpu_read_u8(addr);
+        const val: u8 = self.mem.read_u8(addr);
         self.flags.carry = self.reg.x >= val;
         self.update_zero_negative_flags(self.reg.x -% val);
     }
 
     fn cpy(self: *Cpu, addr: u16) void {
-        const val: u8 = self.bus.cpu_read_u8(addr);
+        const val: u8 = self.mem.read_u8(addr);
         self.flags.carry = self.reg.y >= val;
         self.update_zero_negative_flags(self.reg.y -% val);
     }
 
     fn dec(self: *Cpu, addr: u16) void {
-        const result: u8 = self.bus.cpu_read_u8(addr) -% 1;
-        self.bus.cpu_write_u8(addr, result);
+        const result: u8 = self.mem.read_u8(addr) -% 1;
+        self.mem.write_u8(addr, result);
         self.update_zero_negative_flags(result);
     }
 
     fn eor(self: *Cpu, addr: u16) void {
-        self.reg.a ^= self.bus.cpu_read_u8(addr);
+        self.reg.a ^= self.mem.read_u8(addr);
         self.update_zero_negative_flags(self.reg.a);
     }
 
     fn inc(self: *Cpu, addr: u16) u8 {
-        const result: u8 = self.bus.cpu_read_u8(addr) +% 1;
-        self.bus.cpu_write_u8(addr, result);
+        const result: u8 = self.mem.read_u8(addr) +% 1;
+        self.mem.write_u8(addr, result);
         self.update_zero_negative_flags(result);
         return result;
     }
 
     fn dcp(self: *Cpu, addr: u16) void {
-        const data = self.bus.cpu_read_u8(addr) -% 1;
-        self.bus.cpu_write_u8(addr, data);
+        const data = self.mem.read_u8(addr) -% 1;
+        self.mem.write_u8(addr, data);
         if (data <= self.reg.a) {
             self.flags.carry = true;
         }
@@ -579,13 +645,13 @@ pub const Cpu = struct {
     }
 
     fn lax(self: *Cpu, addr: u16) void {
-        self.reg.a = self.bus.cpu_read_u8(addr);
+        self.reg.a = self.mem.read_u8(addr);
         self.update_zero_negative_flags(self.reg.a);
         self.reg.x = self.reg.a;
     }
 
     fn sax(self: *Cpu, addr: u16) void {
-        self.bus.cpu_write_u8(addr, self.reg.a & self.reg.x);
+        self.mem.write_u8(addr, self.reg.a & self.reg.x);
     }
 
     fn jmp(self: *Cpu, addr: u16) void {
@@ -750,19 +816,19 @@ pub const Cpu = struct {
     }
 
     fn alr(self: *Cpu, addr: u16) void {
-        self.reg.a &= self.bus.cpu_read_u8(addr);
+        self.reg.a &= self.mem.read_u8(addr);
         self.update_zero_negative_flags(self.reg.a);
         self.lsr_acc();
     }
 
     fn anc(self: *Cpu, addr: u16) void {
-        self.reg.a &= self.bus.cpu_read_u8(addr);
+        self.reg.a &= self.mem.read_u8(addr);
         self.update_zero_negative_flags(self.reg.a);
         self.flags.carry = self.flags.negative;
     }
 
     fn axs(self: *Cpu, addr: u16) void {
-        const data: u8 = self.bus.cpu_read_u8(addr);
+        const data: u8 = self.mem.read_u8(addr);
         const x_and_a: u8 = self.reg.x & self.reg.a;
         const result: u8 = x_and_a -% data;
         if (data <= x_and_a) {
@@ -773,7 +839,7 @@ pub const Cpu = struct {
     }
 
     fn arr(self: *Cpu, addr: u16) void {
-        const data: u8 = self.bus.cpu_read_u8(addr);
+        const data: u8 = self.mem.read_u8(addr);
         self.reg.a &= data;
         self.ror_acc();
         const bit_5: bool = self.reg.a & (1 << 5) == 1;
@@ -1044,7 +1110,7 @@ pub const Cpu = struct {
         opcodes[0x9C] = .{ .name = "*ERR", .instruction = nop, .memory = no_memory, .cycles = 0 };
 
         const op_pc: u16 = self.pc_consume(1);
-        const opcode: u8 = self.bus.cpu_read_u8(op_pc);
+        const opcode: u8 = self.mem.read_u8(op_pc);
 
         var tmp: if (dbg) [25]u8 else void = undefined;
         if (dbg) {
@@ -1087,7 +1153,8 @@ pub const Cpu = struct {
     pub fn reset(self: *Cpu) void {
         self.reg = Registers.init();
         self.flags = Flags.init();
-        self.reg.pc = self.bus.cpu_read_u16(0xFFFC);
+        self.reg.pc = self.mem.read_u16(0xFFFC);
         self.reg.pc = 0xC000; // force automated mode in nestest.nes
+        self.cycles = 0;
     }
 };
